@@ -1,0 +1,2662 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>木皮自动排料</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    font-size: 13px; color: #2b3238; background: #eef1f4;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; background: #14395c; color: #fff; flex: 0 0 auto;
+  }
+  header h1 { font-size: 15px; font-weight: 500; margin: 0; }
+  header .sub { font-size: 12px; color: #9dbdd9; }
+  header .sp { flex: 1; }
+  button {
+    font: inherit; padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    border: 1px solid #b9c4cf; background: #fff; color: #2b3238;
+  }
+  button:hover { background: #f2f6fa; }
+  button.primary { background: #d97a0b; border-color: #b86706; color: #fff; font-weight: 500; }
+  button.primary:hover { background: #c26c09; }
+  button.ghost { background: transparent; border-color: #4d6f8e; color: #dbe8f3; }
+  button.ghost:hover { background: rgba(255,255,255,.1); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  main { flex: 1; display: flex; min-height: 0; }
+  .panel {
+    background: #fff; border-right: 1px solid #dde3e9;
+    width: 268px; flex: 0 0 268px; overflow-y: auto; padding: 14px;
+  }
+  .panel.right { border-right: 0; border-left: 1px solid #dde3e9; width: 236px; flex: 0 0 236px; }
+  .stage { flex: 1; position: relative; min-width: 0; background: #2a2f36; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .hint {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    color: #93a1af; font-size: 14px; text-align: center; line-height: 2; pointer-events: none;
+  }
+  .hint b { color: #cfd9e2; font-weight: 500; }
+  h2 { font-size: 13px; font-weight: 500; margin: 0 0 10px; color: #14395c; }
+  h2.mt { margin-top: 18px; }
+  label.f { display: block; margin-bottom: 9px; font-size: 12px; color: #6b7885; }
+  label.f input, label.f select {
+    width: 100%; margin-top: 3px; padding: 5px 7px; font: inherit; font-size: 13px;
+    border: 1px solid #ccd5de; border-radius: 5px; background: #fff; color: #2b3238;
+  }
+  label.f input:focus, label.f select:focus { outline: 2px solid #9dc4e8; border-color: #2e7bc4; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; min-width: 0; }
+  .metrics { display: flex; flex-direction: column; gap: 8px; }
+  .metric { background: #f4f7fa; border-radius: 8px; padding: 10px 12px; }
+  .metric .k { font-size: 12px; color: #6b7885; }
+  .metric .v { font-size: 22px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .metric .v small { font-size: 12px; font-weight: 400; color: #6b7885; margin-left: 3px; }
+  .metric.hi { background: #fdf1e4; }
+  .metric.hi .v { color: #a85c05; }
+  .parts { margin-top: 14px; }
+  .part {
+    display: flex; align-items: center; gap: 6px; padding: 6px 0;
+    border-top: 1px solid #eef1f4; font-size: 12px;
+  }
+  .part .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .part .dim { color: #8593a1; font-variant-numeric: tabular-nums; }
+  .part input { width: 52px; padding: 3px 5px; font: inherit; font-size: 12px;
+    border: 1px solid #ccd5de; border-radius: 4px; text-align: right; }
+  .part .del { border: 0; background: transparent; color: #a33; cursor: pointer; padding: 0 4px; }
+  .empty { color: #9aa7b4; font-size: 12px; padding: 8px 0; }
+  .exports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .exports button { flex: 1 1 46%; padding: 6px 4px; font-size: 12px; }
+  .note { font-size: 11.5px; color: #8593a1; line-height: 1.6; margin-top: 10px; }
+  .hintline { font-size: 11.5px; color: #8593a1; line-height: 1.6; margin: -2px 0 4px; }
+  .hintline b { color: #a85c05; font-weight: 500; }
+  .cmp { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .cmpitem {
+    border: 1px solid #dde3e9; border-radius: 8px; padding: 8px 10px; cursor: pointer;
+    background: #fff;
+  }
+  .cmpitem:hover { background: #f4f7fa; }
+  .cmpitem.on { border-color: #d97a0b; background: #fdf1e4; }
+  .cmpitem .t { font-size: 12px; font-weight: 500; color: #14395c; }
+  .cmpitem.on .t { color: #a85c05; }
+  .cmpitem .n { font-size: 12px; color: #6b7885; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .cmpitem .best { float: right; font-size: 11px; color: #12763c; }
+  .status {
+    flex: 0 0 auto; padding: 6px 16px; font-size: 12px; color: #5b6875;
+    background: #e3e9ef; border-top: 1px solid #d3dbe3;
+    display: flex; gap: 16px; align-items: center;
+  }
+  .status .err { color: #a32d2d; }
+  .status .ok { color: #12763c; }
+  .toast {
+    position: absolute; left: 16px; bottom: 16px; max-width: 60%;
+    background: rgba(20,57,92,.94); color: #fff; padding: 10px 14px; border-radius: 8px;
+    font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; display: none;
+  }
+  .chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6b7885; margin-bottom: 9px; }
+  .chk input { margin: 0; }
+  .radios { margin-bottom: 10px; }
+  .radios .chk, .anglebox .chk { margin-bottom: 6px; }
+  .anglebox { padding-left: 10px; border-left: 2px solid #e3e7ec; margin-bottom: 8px; }
+  .anglebox.off { opacity: .38; pointer-events: none; }
+  #printArea { display: none; }
+  @media print {
+    @page { margin: 8mm; }
+    body > *:not(#printArea) { display: none !important; }
+    #printArea { display: block !important; }
+    #printArea img { width: 100%; height: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>木皮自动排料</h1>
+  <span class="sub">定宽卷料 · 用料长度最小化</span>
+  <span class="sp"></span>
+  <button class="ghost" id="btnOpenProject">打开项目</button>
+  <button class="ghost" id="btnSaveProject">保存项目</button>
+  <input type="file" id="projectInput" accept=".mupi" hidden>
+  <button class="ghost" id="btnCancel" hidden>取消排料</button>
+  <button class="ghost" id="btnImport">导入 DXF</button>
+  <button class="primary" id="btnNest">排料</button>
+  <input type="file" id="fileInput" accept=".dxf,text/plain" multiple hidden>
+</header>
+
+<main>
+  <div class="panel">
+    <h2>料与边界</h2>
+    <label class="f">木皮宽 (mm)
+      <input id="pWidth" type="number" step="0.1" value="1519.9">
+    </label>
+    <div class="row">
+      <label class="f">上布边<input id="pTop" type="number" step="0.1" value="15"></label>
+      <label class="f">下布边<input id="pBottom" type="number" step="0.1" value="15"></label>
+    </div>
+    <div class="row">
+      <label class="f">布头<input id="pHead" type="number" step="0.1" value="15"></label>
+      <label class="f">料尾<input id="pTail" type="number" step="0.1" value="15"></label>
+    </div>
+
+    <h2 class="mt">间距</h2>
+    <div class="row">
+      <label class="f">间隔（目标）<input id="pGap" type="number" step="0.5" min="0" value="3"></label>
+      <label class="f">最小间距<input id="pGapMin" type="number" step="0.5" min="0" value="3"></label>
+    </div>
+    <div class="hintline">「间隔」是平时按它留的目标值；「最小间距」是硬下限 —— 装不下或排太长时允许压到这儿，绝不再小。<b>两个值不同时，工具会把两版都算出来给你对比。</b></div>
+    <button id="btnBoke" type="button" style="width:100%; margin-bottom:10px">套用博克样例参数（四边 15 mm、件距 3 mm）</button>
+    <div class="hintline">样例宽幅 1519.9 mm，单段长度不限；旋转角度和产品数量保持当前选择。</div>
+    <h2 class="mt">旋转模式</h2>
+    <div class="radios">
+      <label class="chk"><input type="radio" name="rotMode" id="rotFixed" value="fixed" checked>指定角度（下面自己勾）</label>
+      <label class="chk"><input type="radio" name="rotMode" id="rotFree" value="free">任意角度（软件自动挑）</label>
+    </div>
+    <div class="anglebox" id="angleBox">
+      <label class="chk"><input type="checkbox" id="ang0" checked>0°　保持原方向</label>
+      <label class="chk"><input type="checkbox" id="ang90">90°　木纹跟着转 90°</label>
+      <label class="chk"><input type="checkbox" id="ang180" checked>180°　允许保持原向或掉头</label>
+      <label class="chk"><input type="checkbox" id="ang270">270°　木纹跟着转 90°</label>
+    </div>
+    <div class="hintline">只勾 0° 时不会掉头；勾选 180° 时，每件可保持 0° 或掉头 180°。</div>
+    <label class="f" id="wrapStep" style="display:none">任意角度步长 (°)
+      <input id="pStep" type="number" step="1" min="1" max="90" value="5">
+    </label>
+
+    <h2 class="mt">分段与优化</h2>
+    <label class="f">单段最大长度 (mm)
+      <input id="pMaxSeg" type="number" step="1" placeholder="留空 = 接成一条长料">
+    </label>
+    <label class="f">优化时间上限 (秒)
+      <input id="pBudget" type="number" step="1" min="1" max="120" value="5">
+    </label>
+    <div class="hintline">时间给得越多，工具试的排法越多、越省料。前两轮是固定策略，之后一直试到时间用完。</div>
+
+    <h2 class="mt">产品清单</h2>
+    <div id="partsList"><div class="empty">还没有导入 DXF</div></div>
+
+    <div class="note">一个 DXF 可以放多个互不包含的闭合外形。导入后每个外形单独显示，可分别填写数量，再统一混排；外形内部的闭合线按内孔处理。博克导出的整张排版图用于对照。</div>
+    <button id="btnReset" style="width:100%; margin-top:12px">恢复出厂参数</button>
+    <div class="hintline" style="margin-top:6px">参数会自动记住，下次打开还是你上次填的。</div>
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="hint" id="hint">
+      <b>点右上角「导入 DXF」</b><br>可以一次选多个文件，也可以把文件拖到这里
+    </div>
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <div class="panel right">
+    <h2>方案对比</h2>
+    <div class="cmp" id="cmpList"><div class="empty">还没排料</div></div>
+
+    <h2>结果</h2>
+    <div class="note" id="validationInfo">排料完成后检查数量、角度、边界、重叠和间距</div>
+    <div class="metrics">
+      <div class="metric hi"><div class="k">木皮总长</div><div class="v" id="mLen">—<small>mm</small></div></div>
+      <div class="metric"><div class="k">利用率</div><div class="v" id="mUse">—<small>%</small></div></div>
+      <div class="metric"><div class="k">已排 / 总数</div><div class="v" id="mCnt">—</div></div>
+      <div class="metric"><div class="k">段数</div><div class="v" id="mSeg">—</div></div>
+    </div>
+
+    <h2 class="mt">导出</h2>
+    <div class="exports">
+      <button id="exPng">排料图 PNG</button>
+      <button id="exPdf">PDF（打印）</button>
+      <button id="exDxf">DXF（切割）</button>
+      <button id="exCsv">清单 CSV</button>
+    </div>
+    <div class="note" id="exportHelp">DXF 按 R12 格式导出，兼容性最好。PDF 走浏览器打印，选「另存为 PDF」。</div>
+
+    <h2 class="mt">视图</h2>
+    <label class="chk"><input type="checkbox" id="vDim" checked>显示尺寸标注</label>
+    <label class="chk"><input type="checkbox" id="vIdx" checked>显示件号</label>
+    <div class="note">滚轮缩放，按住左键拖动平移，双击复位。</div>
+  </div>
+</main>
+
+<div class="status">
+  <span id="stMsg">就绪</span>
+  <span class="sp" style="flex:1"></span>
+  <span id="stInfo"></span>
+</div>
+
+<script id="engine">
+"use strict";
+
+/* ══════════════════════════════════════════════════════════════
+   一、几何工具
+   ══════════════════════════════════════════════════════════════ */
+
+const EPS = 1e-9;
+
+function bbox(pts) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of pts) {
+    if (p[0] < x0) x0 = p[0];
+    if (p[0] > x1) x1 = p[0];
+    if (p[1] < y0) y0 = p[1];
+    if (p[1] > y1) y1 = p[1];
+  }
+  return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
+}
+
+function signedArea(pts) {
+  let s = 0;
+  for (let i = 0, n = pts.length; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    s += a[0] * b[1] - b[0] * a[1];
+  }
+  return s / 2;
+}
+
+function polyLength(pts) {
+  let s = 0;
+  for (let i = 0, n = pts.length; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    s += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return s;
+}
+
+function dist2(a, b) {
+  const dx = a[0] - b[0], dy = a[1] - b[1];
+  return dx * dx + dy * dy;
+}
+
+/* 点到线段距离的平方 */
+function ptSegDist2(p, a, b) {
+  const vx = b[0] - a[0], vy = b[1] - a[1];
+  const wx = p[0] - a[0], wy = p[1] - a[1];
+  const L = vx * vx + vy * vy;
+  let t = L < EPS ? 0 : (wx * vx + wy * vy) / L;
+  if (t < 0) t = 0; else if (t > 1) t = 1;
+  const dx = wx - t * vx, dy = wy - t * vy;
+  return dx * dx + dy * dy;
+}
+
+/* 线段-线段最短距离的平方 */
+function segSegDist2(p1, p2, p3, p4) {
+  if (segIntersect(p1, p2, p3, p4)) return 0;
+  return Math.min(
+    ptSegDist2(p1, p3, p4), ptSegDist2(p2, p3, p4),
+    ptSegDist2(p3, p1, p2), ptSegDist2(p4, p1, p2)
+  );
+}
+
+function orient(a, b, c) {
+  const v = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  return v > EPS ? 1 : (v < -EPS ? -1 : 0);
+}
+
+function onSeg(a, b, p) {
+  return Math.min(a[0], b[0]) - EPS <= p[0] && p[0] <= Math.max(a[0], b[0]) + EPS &&
+         Math.min(a[1], b[1]) - EPS <= p[1] && p[1] <= Math.max(a[1], b[1]) + EPS;
+}
+
+function segIntersect(a, b, c, d) {
+  const o1 = orient(a, b, c), o2 = orient(a, b, d);
+  const o3 = orient(c, d, a), o4 = orient(c, d, b);
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && onSeg(a, b, c)) return true;
+  if (o2 === 0 && onSeg(a, b, d)) return true;
+  if (o3 === 0 && onSeg(c, d, a)) return true;
+  if (o4 === 0 && onSeg(c, d, b)) return true;
+  return false;
+}
+
+function pointInPoly(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > p[1]) !== (b[1] > p[1])) {
+      const x = a[0] + (p[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0]);
+      if (p[0] < x) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/* 真交叉：两条线段在各自内部穿过（共线接触不算） */
+function segProperIntersect(a, b, c, d) {
+  const o1 = orient(a, b, c), o2 = orient(a, b, d);
+  const o3 = orient(c, d, a), o4 = orient(c, d, b);
+  return o1 !== o2 && o3 !== o4 && o1 !== 0 && o2 !== 0 && o3 !== 0 && o4 !== 0;
+}
+
+/* 严格在内部（不算落在边上） */
+function pointInPolyStrict(p, poly, tol) {
+  tol = tol || 1e-4;
+  for (let i = 0, n = poly.length; i < n; i++) {
+    if (ptSegDist2(p, poly[i], poly[(i + 1) % n]) < tol * tol) return false;
+  }
+  return pointInPoly(p, poly);
+}
+
+/* 取一条边的中点，沿内法向偏移一点 —— 保证落在多边形内部（凹形也适用） */
+function interiorSample(pts, i) {
+  const a = pts[i], b = pts[(i + 1) % pts.length];
+  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  let nx = -(b[1] - a[1]), ny = (b[0] - a[0]);      // 左法向
+  const L = Math.hypot(nx, ny) || 1;
+  nx /= L; ny /= L;
+  const s = signedArea(pts) > 0 ? 1 : -1;           // 逆时针时内部在左
+  const d = Math.min(0.5, L / 4);
+  return [mx + nx * s * d, my + ny * s * d];
+}
+
+/* 两个多边形是否真正重叠（贴边不算重叠） */
+function polyOverlap(A, B) {
+  const bbA = bbox(A), bbB = bbox(B);
+  if (bbA.x1 < bbB.x0 - EPS || bbB.x1 < bbA.x0 - EPS ||
+      bbA.y1 < bbB.y0 - EPS || bbB.y1 < bbA.y0 - EPS) return false;
+  for (let i = 0, n = A.length; i < n; i++) {
+    const a1 = A[i], a2 = A[(i + 1) % n];
+    for (let j = 0, m = B.length; j < m; j++) {
+      if (segProperIntersect(a1, a2, B[j], B[(j + 1) % m])) return true;
+    }
+  }
+  for (const v of A) if (pointInPolyStrict(v, B)) return true;
+  for (const v of B) if (pointInPolyStrict(v, A)) return true;
+  for (let i = 0; i < A.length; i++) if (pointInPolyStrict(interiorSample(A, i), B)) return true;
+  for (let i = 0; i < B.length; i++) if (pointInPolyStrict(interiorSample(B, i), A)) return true;
+  return false;
+}
+
+/* 两个多边形是否相交（含包含关系） */
+function polyIntersect(A, B) {
+  const bbA = bbox(A), bbB = bbox(B);
+  if (bbA.x1 < bbB.x0 - EPS || bbB.x1 < bbA.x0 - EPS ||
+      bbA.y1 < bbB.y0 - EPS || bbB.y1 < bbA.y0 - EPS) return false;
+  for (let i = 0, n = A.length; i < n; i++) {
+    const a1 = A[i], a2 = A[(i + 1) % n];
+    for (let j = 0, m = B.length; j < m; j++) {
+      if (segIntersect(a1, a2, B[j], B[(j + 1) % m])) return true;
+    }
+  }
+  if (pointInPoly(A[0], B)) return true;
+  if (pointInPoly(B[0], A)) return true;
+  return false;
+}
+
+/* 每条边的包围盒 —— 碰撞检测的第一层剪枝，能把 201×201 的全配对降到几十对 */
+function edgeBoxes(pts) {
+  const n = pts.length, eb = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    eb[i] = [Math.min(a[0], b[0]), Math.min(a[1], b[1]),
+             Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+  }
+  return eb;
+}
+
+/* 带偏移的方向判定（内联版，走 EPS 容差） */
+function orr(ax, ay, bx, by, cx, cy) {
+  const v = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  return v > 1e-9 ? 1 : (v < -1e-9 ? -1 : 0);
+}
+
+/* 标量版：点到线段距离平方（免去数组分配，碰撞检测最热的内循环） */
+function ptSegDist2s(px, py, ax, ay, bx, by) {
+  const vx = bx - ax, vy = by - ay;
+  const wx = px - ax, wy = py - ay;
+  const L = vx * vx + vy * vy;
+  let t = L < 1e-18 ? 0 : (wx * vx + wy * vy) / L;
+  if (t < 0) t = 0; else if (t > 1) t = 1;
+  const dx = wx - t * vx, dy = wy - t * vy;
+  return dx * dx + dy * dy;
+}
+
+/* 冲突检测：0 = 可以放，1 = 压叠，2 = 间距不足
+   pts/eb 为「相对原点」的轮廓与边包围盒，px/py 为放置偏移；p 为已放件（世界坐标）
+
+   注意：边-边的「同侧」判定只能用来排除**相交**，不能用来排除**距离** ——
+   两条近似平行、相距很近的边，端点必然落在对方同侧。早先版本把两者合并成一次
+   continue，导致间距校验完全失效（实测两件只隔 0.74mm 却判定合格）。 */
+function clashAt(pts, eb, px, py, p, gap, w, h) {
+  const n = pts.length, m = p.pts.length;
+  const P = p.pts, EB = p.eb, pbb = p.bb;
+  const pad = gap > 0 ? gap : 0.001;
+  let minD2 = Infinity;
+
+  for (let i = 0; i < n; i++) {
+    const a = eb[i];
+    const ax0 = a[0] + px - pad, ay0 = a[1] + py - pad;
+    const ax1 = a[2] + px + pad, ay1 = a[3] + py + pad;
+    if (ax1 < pbb.x0 || ax0 > pbb.x1 || ay1 < pbb.y0 || ay0 > pbb.y1) continue;
+    const i2 = (i + 1) % n;
+    const a1x = pts[i][0] + px, a1y = pts[i][1] + py;
+    const a2x = pts[i2][0] + px, a2y = pts[i2][1] + py;
+    for (let j = 0; j < m; j++) {
+      const b = EB[j];
+      if (b[2] < ax0 || b[0] > ax1 || b[3] < ay0 || b[1] > ay1) continue;
+      const j2 = (j + 1) % m;
+      const b1x = P[j][0], b1y = P[j][1];
+      const b2x = P[j2][0], b2y = P[j2][1];
+
+      // ① 真交叉 → 压叠（这一步才允许用「同侧」快速排除）
+      const o1 = orr(a1x, a1y, a2x, a2y, b1x, b1y);
+      const o2 = orr(a1x, a1y, a2x, a2y, b2x, b2y);
+      if (o1 * o2 < 0) {
+        const o3 = orr(b1x, b1y, b2x, b2y, a1x, a1y);
+        const o4 = orr(b1x, b1y, b2x, b2y, a2x, a2y);
+        if (o3 * o4 < 0) return 1;
+      }
+
+      // ② 距离：只要边包围盒挨得够近就必须算，不能用同侧排除
+      const d2 = Math.min(
+        ptSegDist2s(a1x, a1y, b1x, b1y, b2x, b2y),
+        ptSegDist2s(a2x, a2y, b1x, b1y, b2x, b2y),
+        ptSegDist2s(b1x, b1y, a1x, a1y, a2x, a2y),
+        ptSegDist2s(b2x, b2y, a1x, a1y, a2x, a2y)
+      );
+      if (d2 < minD2) minD2 = d2;
+    }
+  }
+
+  if (minD2 < 1e-6) {
+    // 贴到一起了 —— 可能只是贴边，也可能真的压叠。
+    // 这里必须双向查：早先只查了「候选件的内侧点是否落在已放件里」，
+    // 漏掉了「已放件的顶点/内侧点落进候选件」那一半，导致共线相接的压叠被放行
+    // （实测件C 与件A 重叠 40mm 却判定合格）。
+    if (polyOverlap(translate(pts, px, py), P)) return 1;
+  }
+  if (gap > 0 && minD2 < gap * gap - 1e-9) return 2;
+  // 完全包含时，一个包围盒必定包含另一个；先用包围盒筛掉常见的相邻件。
+  if (px >= pbb.x0 - EPS && py >= pbb.y0 - EPS &&
+      px + w <= pbb.x1 + EPS && py + h <= pbb.y1 + EPS &&
+      pointInPolyStrict([pts[0][0] + px, pts[0][1] + py], P)) return 1;
+  if (pbb.x0 >= px - EPS && pbb.y0 >= py - EPS &&
+      pbb.x1 <= px + w + EPS && pbb.y1 <= py + h + EPS &&
+      pointInPolyStrict([P[0][0] - px, P[0][1] - py], pts)) return 1;
+  return 0;
+}
+
+/* 两个多边形之间的最短距离（相交返回 0） */
+function polyDist(A, B) {
+  if (polyIntersect(A, B)) return 0;
+  let best = Infinity;
+  for (let i = 0, n = A.length; i < n; i++) {
+    const a1 = A[i], a2 = A[(i + 1) % n];
+    for (let j = 0, m = B.length; j < m; j++) {
+      const d2 = segSegDist2(a1, a2, B[j], B[(j + 1) % m]);
+      if (d2 < best) { best = d2; if (best === 0) return 0; }
+    }
+  }
+  return Math.sqrt(best);
+}
+
+/* Douglas-Peucker：在容差内抽稀折线（密集采样的曲线必须用它，
+   否则「相邻三点近似共线」的判据会把整条曲线抽成一条直线） */
+function dpSimplify(pts, tol) {
+  if (pts.length < 3) return pts.slice();
+  const keep = new Uint8Array(pts.length);
+  keep[0] = keep[pts.length - 1] = 1;
+  const stack = [[0, pts.length - 1]];
+  const t2 = tol * tol;
+  while (stack.length) {
+    const seg = stack.pop();
+    const i0 = seg[0], i1 = seg[1];
+    let maxD = -1, idx = -1;
+    for (let i = i0 + 1; i < i1; i++) {
+      const d = ptSegDist2(pts[i], pts[i0], pts[i1]);
+      if (d > maxD) { maxD = d; idx = i; }
+    }
+    if (maxD > t2 && idx > i0) {
+      keep[idx] = 1;
+      stack.push([i0, idx], [idx, i1]);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
+  return out;
+}
+
+/* 闭合轮廓抽稀：先找离首点最远的点把环拆成两段，各自 DP 后再接起来 */
+function simplify(pts, tol) {
+  tol = tol || 0.02;
+  const n = pts.length;
+  if (n < 5) return pts.slice();
+  let far = 1, fd = -1;
+  for (let i = 1; i < n; i++) {
+    const d = dist2(pts[i], pts[0]);
+    if (d > fd) { fd = d; far = i; }
+  }
+  const a = dpSimplify(pts.slice(0, far + 1), tol);
+  const b = dpSimplify(pts.slice(far).concat([pts[0]]), tol);
+  const out = a.slice(0, -1).concat(b.slice(0, -1));
+  return out.length >= 3 ? out : pts.slice();
+}
+
+function rotate(pts, deg, ox, oy) {
+  const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  const out = new Array(pts.length);
+  for (let i = 0; i < pts.length; i++) {
+    const x = pts[i][0] - ox, y = pts[i][1] - oy;
+    out[i] = [x * c - y * s + ox, x * s + y * c + oy];
+  }
+  return out;
+}
+
+function translate(pts, dx, dy) {
+  const out = new Array(pts.length);
+  for (let i = 0; i < pts.length; i++) out[i] = [pts[i][0] + dx, pts[i][1] + dy];
+  return out;
+}
+
+function scale(pts, k) {
+  const out = new Array(pts.length);
+  for (let i = 0; i < pts.length; i++) out[i] = [pts[i][0] * k, pts[i][1] * k];
+  return out;
+}
+
+/* 把包围盒左下角挪到原点 */
+function normalize(pts) {
+  const bb = bbox(pts);
+  return { pts: translate(pts, -bb.x0, -bb.y0), w: bb.w, h: bb.h };
+}
+
+/* 多边形面积（取绝对值） */
+function polyArea(pts) { return Math.abs(signedArea(pts)); }
+
+/* ══════════════════════════════════════════════════════════════
+   二、DXF 解析
+   ══════════════════════════════════════════════════════════════ */
+
+const ARC_TOL = 0.05;          // 圆弧/样条离散弦高容差 (mm)
+
+function arcPoints(cx, cy, r, a0, a1, ccw, tol) {
+  let sweep = a1 - a0;
+  if (ccw) { while (sweep <= 0) sweep += Math.PI * 2; }
+  else { while (sweep >= 0) sweep -= Math.PI * 2; }
+  const maxStep = 2 * Math.acos(Math.max(-1, Math.min(1, 1 - (tol || ARC_TOL) / Math.max(r, 1e-6))));
+  const n = Math.max(2, Math.ceil(Math.abs(sweep) / Math.max(maxStep, 0.01)));
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + sweep * i / n;
+    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  return pts;
+}
+
+/* 多段线 bulge（凸度）段 → 圆弧点集 */
+function bulgeArc(p1, p2, bulge, tol) {
+  const dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+  const chord = Math.hypot(dx, dy);
+  if (chord < EPS) return [p2];
+  const theta = 4 * Math.atan(bulge);           // 圆心角
+  const r = chord / (2 * Math.sin(Math.abs(theta) / 2));
+  const mid = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+  const h = Math.sqrt(Math.max(0, r * r - (chord / 2) * (chord / 2)));
+  const nx = -dy / chord, ny = dx / chord;
+  const sgn = theta > 0 ? 1 : -1;              // 正凸度＝逆时针弧，圆心在弦左侧
+  const cx = mid[0] + nx * h * sgn, cy = mid[1] + ny * h * sgn;
+  let a0 = Math.atan2(p1[1] - cy, p1[0] - cx);
+  let a1 = Math.atan2(p2[1] - cy, p2[0] - cx);
+  const pts = arcPoints(cx, cy, r, a0, a1, theta > 0, tol);
+  pts.shift();                                   // 去掉起点（上一点已含）
+  return pts;
+}
+
+function deCasteljau(cp, t) {
+  const p = cp.map(v => v.slice());
+  for (let k = p.length - 1; k > 0; k--) {
+    for (let i = 0; i < k; i++) {
+      p[i] = [p[i][0] * (1 - t) + p[i + 1][0] * t, p[i][1] * (1 - t) + p[i + 1][1] * t];
+    }
+  }
+  return p[0];
+}
+
+/* 二分查找 u 所在的节点区间（The NURBS Book 的 findSpan） */
+function findSpan(n, degree, u, knots) {
+  if (u >= knots[n + 1]) return n;
+  if (u <= knots[degree]) return degree;
+  let low = degree, high = n + 1, mid = (low + high) >> 1;
+  while (u < knots[mid] || u >= knots[mid + 1]) {
+    if (u < knots[mid]) high = mid; else low = mid;
+    mid = (low + high) >> 1;
+    if (mid <= low && mid >= high) break;
+  }
+  return mid;
+}
+
+/* de Boor 求值：节点区间 span 内参数 u 处的曲线点 */
+function deBoor(u, cps, knots, degree, span) {
+  const d = [];
+  for (let j = 0; j <= degree; j++) {
+    const src = cps[span - degree + j] || cps[cps.length - 1];
+    d.push([src[0], src[1]]);
+  }
+  for (let r = 1; r <= degree; r++) {
+    for (let j = degree; j >= r; j--) {
+      const i = span - degree + j;
+      const den = knots[i + degree - r + 1] - knots[i];
+      const a = den > 1e-12 ? (u - knots[i]) / den : 0;
+      d[j] = [d[j - 1][0] * (1 - a) + d[j][0] * a,
+              d[j - 1][1] * (1 - a) + d[j][1] * a];
+    }
+  }
+  return d[degree];
+}
+
+/* 三次 B 样条（DXF SPLINE）离散
+   有节点向量时走正规 de Boor；没有时退回均匀三次 B 样条 */
+function splinePoints(cps, closed, tol, knots, degree) {
+  const n = cps.length;
+  if (n < 2) return cps.slice();
+  if (n === 2) return [cps[0], cps[1]];
+
+  if (knots && knots.length >= n + 3) {
+    const deg = degree || 3;
+    const t0 = knots[deg], t1 = knots[n];
+    if (t1 > t0) {
+      let len = 0;
+      for (let i = 1; i < n; i++) {
+        len += Math.hypot(cps[i][0] - cps[i - 1][0], cps[i][1] - cps[i - 1][1]);
+      }
+      const steps = Math.min(30000, Math.max(200, Math.ceil(len / 0.4)));
+      const out = [];
+      for (let s = 0; s <= steps; s++) {
+        const u = (s === steps) ? t1 : t0 + (t1 - t0) * s / steps;
+        const span = findSpan(n - 1, deg, u, knots);
+        out.push(deBoor(u, cps, knots, deg, span));
+      }
+      if (closed && out.length > 1 &&
+          dist2(out[0], out[out.length - 1]) < 1e-6) out.pop();
+      return out;
+    }
+  }
+
+  // 退回：均匀三次 B 样条
+  const pts = [];
+  const seg = closed ? n : n - 3;
+  for (let i = 0; i < seg; i++) {
+    const p0 = cps[i % n], p1 = cps[(i + 1) % n], p2 = cps[(i + 2) % n], p3 = cps[(i + 3) % n];
+    const steps = 8;
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      const t2 = t * t, t3 = t2 * t;
+      const x = ((-t3 + 3 * t2 - 3 * t + 1) * p0[0] + (3 * t3 - 6 * t2 + 4) * p1[0] +
+                 (-3 * t3 + 3 * t2 + 3 * t + 1) * p2[0] + t3 * p3[0]) / 6;
+      const y = ((-t3 + 3 * t2 - 3 * t + 1) * p0[1] + (3 * t3 - 6 * t2 + 4) * p1[1] +
+                 (-3 * t3 + 3 * t2 + 3 * t + 1) * p2[1] + t3 * p3[1]) / 6;
+      pts.push([x, y]);
+    }
+  }
+  if (!closed) pts.push(cps[n - 1]);
+  return pts;
+}
+
+function pair(lines) {
+  const out = [];
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const code = parseInt(lines[i].trim(), 10);
+    if (isNaN(code)) continue;
+    out.push([code, lines[i + 1]]);
+  }
+  return out;
+}
+
+/* ── 块引用（BLOCK / INSERT）支持 ─────────────────────────────
+   DXF 里几何常常画在 BLOCK 里、再由 INSERT 摆到图上。不展开就什么都读不到。
+   变换矩阵用 [a,b,c,d,e,f]：x' = a·x + c·y + e，y' = b·x + d·y + f   */
+
+function matMul(m1, m2) {
+  return [
+    m1[0] * m2[0] + m1[2] * m2[1],
+    m1[1] * m2[0] + m1[3] * m2[1],
+    m1[0] * m2[2] + m1[2] * m2[3],
+    m1[1] * m2[2] + m1[3] * m2[3],
+    m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+    m1[1] * m2[4] + m1[3] * m2[5] + m1[5]
+  ];
+}
+
+function matApply(m, p) {
+  return [m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]];
+}
+
+/* INSERT 的变换：先减块基点 → 缩放 → 旋转 → 平移到插入点 */
+function insertMatrix(ins, base) {
+  const rad = (ins.rot || 0) * Math.PI / 180;
+  const ca = Math.cos(rad), sa = Math.sin(rad);
+  const sx = ins.sx === 0 ? 1 : (isNaN(ins.sx) ? 1 : ins.sx);
+  const sy = ins.sy === 0 ? 1 : (isNaN(ins.sy) ? 1 : ins.sy);
+  const A = ca * sx, B = sa * sx, C = -sa * sy, D = ca * sy;
+  const bx = base[0], by = base[1];
+  return [A, B, C, D, ins.px - (A * bx + C * by), ins.py - (B * bx + D * by)];
+}
+
+function readBlockHead(codes, start) {
+  let name = "", bx = 0, by = 0;
+  let i = start + 1;
+  while (i < codes.length && codes[i][0] !== 0) {
+    const [c, v] = codes[i];
+    if (c === 2 && !name) name = v.trim();
+    else if (c === 10) bx = parseFloat(v);
+    else if (c === 20) by = parseFloat(v);
+    i++;
+  }
+  return { name, base: [bx, by], next: i };
+}
+
+function readInsert(codes, start) {
+  let name = "", px = 0, py = 0, sx = 1, sy = 1, rot = 0, cols = 1, rows = 1, cs = 0, rs = 0;
+  let i = start + 1;
+  while (i < codes.length && codes[i][0] !== 0) {
+    const [c, v] = codes[i];
+    if (c === 2 && !name) name = v.trim();
+    else if (c === 10) px = parseFloat(v);
+    else if (c === 20) py = parseFloat(v);
+    else if (c === 41) sx = parseFloat(v);
+    else if (c === 42) sy = parseFloat(v);
+    else if (c === 50) rot = parseFloat(v);
+    else if (c === 70) cols = parseInt(v, 10) || 1;
+    else if (c === 71) rows = parseInt(v, 10) || 1;
+    else if (c === 44) cs = parseFloat(v) || 0;
+    else if (c === 45) rs = parseFloat(v) || 0;
+    i++;
+  }
+  return { type: "INSERT", name, px, py, sx, sy, rot, cols, rows, cs, rs, next: i };
+}
+
+/* 解析 DXF 文本 → 折线段列表 + 单位信息（块引用会被展开成实际几何） */
+function parseDxf(text) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const codes = pair(lines);
+
+  const ENT = { LWPOLYLINE: 1, POLYLINE: 1, LINE: 1, ARC: 1, CIRCLE: 1, SPLINE: 1, ELLIPSE: 1 };
+  let units = 4;                      // 默认 mm
+  let inHeader = false, inEntities = false, inBlocks = false;
+  const rawEnts = [];                 // 可能含 INSERT 占位
+  const blocks = new Map();
+  let curBlock = null;
+  let insertCount = 0;
+
+  let i = 0;
+  while (i < codes.length) {
+    const [code, val] = codes[i];
+    const v = val.trim();
+    if (code === 0) {
+      if (v === "SECTION") {
+        const nx = codes[i + 1];
+        if (nx && nx[0] === 2) {
+          const nm = nx[1].trim();
+          inHeader = nm === "HEADER";
+          inEntities = nm === "ENTITIES";
+          inBlocks = nm === "BLOCKS";
+        }
+      } else if (v === "ENDSEC") {
+        inHeader = inEntities = inBlocks = false;
+        curBlock = null;
+      } else if (inHeader && v === "$INSUNITS") {
+        const nx = codes[i + 1];
+        if (nx && nx[0] === 70) units = parseInt(nx[1], 10);
+      } else if (inBlocks && v === "BLOCK") {
+        const r = readBlockHead(codes, i);
+        curBlock = { name: r.name, base: r.base, ents: [] };
+        if (r.name && !blocks.has(r.name)) blocks.set(r.name, curBlock);
+        i = r.next; continue;
+      } else if (inBlocks && v === "ENDBLK") {
+        curBlock = null;
+      } else if ((inEntities || inBlocks) && v === "INSERT") {
+        // 注意：块定义内部也可能有 INSERT（嵌套块），两段都要收
+        const r = readInsert(codes, i);
+        insertCount++;
+        if (inBlocks && curBlock) curBlock.ents.push(r);
+        else rawEnts.push(r);
+        i = r.next; continue;
+      } else if ((inEntities || inBlocks) && ENT[v]) {
+        const r = readEntity(codes, i, v);
+        if (r && r.pts.length >= 2) (inBlocks && curBlock ? curBlock.ents : rawEnts).push(r);
+        i = r ? r.next : i + 1;
+        continue;
+      }
+    }
+    i++;
+  }
+
+  // 展开块引用（支持嵌套与矩形阵列）
+  const raw = [];
+  const expand = (ents, mat, depth) => {
+    if (depth > 8) return;
+    for (const e of ents) {
+      if (e.type === "INSERT") {
+        const b = blocks.get(e.name);
+        if (!b) continue;
+        const cols = Math.max(1, e.cols), rows = Math.max(1, e.rows);
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const one = (cols === 1 && rows === 1) ? e :
+              Object.assign({}, e, { px: e.px + c * e.cs, py: e.py + r * e.rs });
+            expand(b.ents, matMul(mat, insertMatrix(one, b.base)), depth + 1);
+          }
+        }
+      } else if (e.pts && e.pts.length >= 2) {
+        raw.push({ pts: e.pts.map(p => matApply(mat, p)), closed: !!e.closed });
+      }
+    }
+  };
+  expand(rawEnts, [1, 0, 0, 1, 0, 0], 0);
+
+  // 单位换算到 mm
+  const unitScale = { 1: 25.4, 2: 304.8, 4: 1, 5: 10, 6: 1000, 0: 1 }[units] || 1;
+  if (unitScale !== 1) raw.forEach(e => { e.pts = scale(e.pts, unitScale); });
+
+  return { segments: raw, units, blocks: blocks.size, inserts: insertCount };
+}
+
+function readEntity(codes, start, type) {
+  const g = {};
+  const pts = [];
+  let i = start + 1;
+  let closed = false;
+  let bulge = 0;
+  const verts = [];
+
+  if (type === "LINE") {
+    let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    while (i < codes.length && codes[i][0] !== 0) {
+      const [c, v] = codes[i];
+      if (c === 10) x1 = parseFloat(v); else if (c === 20) y1 = parseFloat(v);
+      else if (c === 11) x2 = parseFloat(v); else if (c === 21) y2 = parseFloat(v);
+      i++;
+    }
+    return { pts: [[x1, y1], [x2, y2]], closed: false, next: i };
+  }
+
+  if (type === "CIRCLE" || type === "ARC") {
+    let cx = 0, cy = 0, r = 0, a0 = 0, a1 = Math.PI * 2;
+    while (i < codes.length && codes[i][0] !== 0) {
+      const [c, v] = codes[i];
+      if (c === 10) cx = parseFloat(v); else if (c === 20) cy = parseFloat(v);
+      else if (c === 40) r = parseFloat(v);
+      else if (c === 50) a0 = parseFloat(v) * Math.PI / 180;
+      else if (c === 51) a1 = parseFloat(v) * Math.PI / 180;
+      i++;
+    }
+    if (type === "CIRCLE") return { pts: arcPoints(cx, cy, r, 0, Math.PI * 2, true), closed: true, next: i };
+    return { pts: arcPoints(cx, cy, r, a0, a1, true), closed: false, next: i };
+  }
+
+  if (type === "ELLIPSE") {
+    let cx = 0, cy = 0, mx = 1, my = 0, ratio = 1, a0 = 0, a1 = Math.PI * 2;
+    while (i < codes.length && codes[i][0] !== 0) {
+      const [c, v] = codes[i];
+      if (c === 10) cx = parseFloat(v); else if (c === 20) cy = parseFloat(v);
+      else if (c === 11) mx = parseFloat(v); else if (c === 21) my = parseFloat(v);
+      else if (c === 40) ratio = parseFloat(v);
+      else if (c === 41) a0 = parseFloat(v); else if (c === 42) a1 = parseFloat(v);
+      i++;
+    }
+    const out = [];
+    const n = 96;
+    for (let k = 0; k <= n; k++) {
+      const t = a0 + (a1 - a0) * k / n;
+      const ex = mx * Math.cos(t), ey = my * Math.sin(t);
+      out.push([cx + ex * 1 + (-my * ratio) * Math.sin(t) * 0, cy + 0]);
+      const rx = mx, ry = Math.hypot(mx, my) * ratio;
+      out[out.length - 1] = [cx + rx * Math.cos(t) * Math.cos(0) - ry * Math.sin(t) * Math.sin(0),
+                             cy + rx * Math.cos(t) * Math.sin(0) + ry * Math.sin(t) * Math.cos(0)];
+    }
+    return { pts: out, closed: Math.abs((a1 - a0) - Math.PI * 2) < 1e-6, next: i };
+  }
+
+  if (type === "SPLINE") {
+    const cps = [], knots = [];
+    let cur = null, isClosed = false, degree = 3;
+    while (i < codes.length && codes[i][0] !== 0) {
+      const [c, v] = codes[i];
+      if (c === 10) { cur = [parseFloat(v), 0]; cps.push(cur); }
+      else if (c === 20 && cur) cur[1] = parseFloat(v);
+      else if (c === 40) knots.push(parseFloat(v));
+      else if (c === 70) isClosed = (parseInt(v, 10) & 1) === 1;
+      else if (c === 71) degree = parseInt(v, 10) || 3;
+      i++;
+    }
+    return { pts: splinePoints(cps, isClosed, ARC_TOL, knots, degree), closed: isClosed, next: i };
+  }
+
+  // LWPOLYLINE / POLYLINE
+  if (type === "LWPOLYLINE") {
+    let x = 0, y = 0, b = 0, hasB = false, flag = 0;
+    const tmp = [];
+    while (i < codes.length && codes[i][0] !== 0) {
+      const [c, v] = codes[i];
+      if (c === 70) flag = parseInt(v, 10);
+      else if (c === 10) {
+        if (hasB && tmp.length) tmp[tmp.length - 1].b = b;
+        x = parseFloat(v); y = 0; b = 0; hasB = false;
+        tmp.push({ x, y, b: 0 });
+      } else if (c === 20 && tmp.length) { tmp[tmp.length - 1].y = parseFloat(v); }
+      else if (c === 42 && tmp.length) { tmp[tmp.length - 1].b = parseFloat(v); hasB = true; }
+      i++;
+    }
+    return { pts: buildPoly(tmp, (flag & 1) === 1), closed: (flag & 1) === 1, next: i };
+  }
+
+  if (type === "POLYLINE") {
+    let flag = 0;
+    while (i < codes.length && codes[i][0] !== 0) {
+      const [c, v] = codes[i];
+      if (c === 70) flag = parseInt(v, 10);
+      i++;
+    }
+    const tmp = [];
+    while (i < codes.length && codes[i][0] === 0) {
+      if (codes[i][1].trim() === "VERTEX") {
+        let x = 0, y = 0, b = 0;
+        i++;
+        while (i < codes.length && codes[i][0] !== 0) {
+          const [c, v] = codes[i];
+          if (c === 10) x = parseFloat(v); else if (c === 20) y = parseFloat(v);
+          else if (c === 42) b = parseFloat(v);
+          i++;
+        }
+        tmp.push({ x, y, b });
+      } else if (codes[i][1].trim() === "SEQEND") {
+        i++;
+        while (i < codes.length && codes[i][0] !== 0) i++;
+        break;
+      } else break;
+    }
+    return { pts: buildPoly(tmp, (flag & 1) === 1), closed: (flag & 1) === 1, next: i };
+  }
+
+  return null;
+}
+
+function buildPoly(tmp, closed) {
+  const pts = [];
+  const n = tmp.length;
+  if (!n) return pts;
+  const last = closed ? n : n - 1;
+  for (let k = 0; k < last; k++) {
+    const a = tmp[k], b = tmp[(k + 1) % n];
+    pts.push([a.x, a.y]);
+    if (a.b) {
+      const arc = bulgeArc([a.x, a.y], [b.x, b.y], a.b, ARC_TOL);
+      for (const p of arc) pts.push(p);
+    }
+  }
+  if (!closed) pts.push([tmp[n - 1].x, tmp[n - 1].y]);
+  return pts;
+}
+
+/* 把散乱线段串成闭合轮廓 */
+function chainContours(segments, tol) {
+  tol = tol || 0.5;
+  const open = segments.filter(s => !s.closed).map(s => ({ pts: s.pts.slice() }));
+  const closed = segments.filter(s => s.closed).map(s => s.pts.slice());
+  const result = closed.slice();
+
+  const used = new Array(open.length).fill(false);
+  const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) <= tol;
+
+  for (let i = 0; i < open.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    let chain = open[i].pts.slice();
+    let grew = true;
+    while (grew) {
+      grew = false;
+      const head = chain[0], tail = chain[chain.length - 1];
+      for (let j = 0; j < open.length; j++) {
+        if (used[j]) continue;
+        const p = open[j].pts, a = p[0], b = p[p.length - 1];
+        if (near(tail, a)) { chain = chain.concat(p.slice(1)); used[j] = true; grew = true; }
+        else if (near(tail, b)) { chain = chain.concat(p.slice(0, -1).reverse()); used[j] = true; grew = true; }
+        else if (near(head, b)) { chain = p.slice(0, -1).concat(chain); used[j] = true; grew = true; }
+        else if (near(head, a)) { chain = p.slice(1).reverse().concat(chain); used[j] = true; grew = true; }
+        if (grew) break;
+      }
+    }
+    if (chain.length >= 3 && near(chain[0], chain[chain.length - 1])) {
+      chain.pop();
+      result.push(chain);
+    }
+  }
+  return result;
+}
+
+/* 轮廓 → 形状（外轮廓 + 内孔） */
+function buildShapes(contours) {
+  const items = contours.map((pts, i) => {
+    const s = simplify(pts, 0.02);
+    const a = Math.abs(signedArea(s));
+    const bb = bbox(s);
+    return { pts: s, area: a, bb, idx: i, parent: -1 };
+  }).filter(it => it.area > 0.01);
+
+  items.sort((a, b) => b.area - a.area);
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i - 1; j >= 0; j--) {
+      if (items[j].bb.x0 <= items[i].bb.x0 && items[j].bb.x1 >= items[i].bb.x1 &&
+          items[j].bb.y0 <= items[i].bb.y0 && items[j].bb.y1 >= items[i].bb.y1 &&
+          pointInPoly(items[i].pts[0], items[j].pts)) {
+        items[i].parent = j;
+        break;
+      }
+    }
+  }
+
+  const shapes = [];
+  const byIdx = new Map();
+  items.forEach((it, i) => { if (it.parent < 0) { const s = { outline: it.pts, holes: [], area: it.area }; byIdx.set(i, s); shapes.push(s); } });
+  items.forEach((it, i) => {
+    if (it.parent >= 0) {
+      const p = byIdx.get(it.parent);
+      if (p) { p.holes.push(it.pts); p.area -= it.area; }
+    }
+  });
+  return shapes;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   三、排料引擎
+   ══════════════════════════════════════════════════════════════ */
+
+/* 生成一个形状的旋转副本（已归一化到原点）
+   mode = "free"   → 软件按步长自己挑角度
+   mode = "custom" → 只用 angleList 里勾选的那几个角度 */
+function variantsOf(shape, mode, step, angleList) {
+  const angles = [];
+  if (mode === "free") {
+    /* ★ 任意角度不能只铺一条粗网格。
+       坑：步长 15° 时池子里是 0/15/30/…，而真正最优的倾斜角是 1~5° 这种「小角度」——
+       网格一粗就把它们全跳过去了，搜索只好退回 0°/180°（实测占用 1142.47）。
+       而 3° 能到 1081.20（省 59mm）。所以必须**在基准角附近做细扫**：
+       0°±9°、90°±9°、180°±9°、270°±9°，步长取用户设定值的一半（下限 0.5°）。
+       这样既保留粗网格的全局覆盖，又把小角度的细粒度补上。 */
+    const st = Math.max(1, step || 5);
+    for (let a = 0; a < 360; a += st) angles.push(a);
+    const fine = Math.max(0.5, st / 2);
+    for (const base of [0, 90, 180, 270]) {
+      for (let d = -9; d <= 9.0001; d += fine) angles.push(((base + d) % 360 + 360) % 360);
+    }
+  } else {
+    const list = (angleList && angleList.length) ? angleList : [0];
+    for (const a of list) angles.push(((a % 360) + 360) % 360);
+  }
+  const c = bbox(shape.outline);
+  const cx = c.x0 + c.w / 2, cy = c.y0 + c.h / 2;
+  const out = [];
+  const seen = new Set();
+  for (const a of angles) {
+    const rot = a === 0 ? shape.outline : rotate(shape.outline, a, cx, cy);
+    const n = normalize(rot);
+    const key = n.w.toFixed(2) + "x" + n.h.toFixed(2) + "@" + a;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const holes = shape.holes.map(h => normalize(rotate(a === 0 ? h : rotate(h, a, cx, cy), 0, 0)).pts);
+    out.push({ angle: a, pts: n.pts, eb: edgeBoxes(n.pts), holes, w: n.w, h: n.h, area: polyArea(n.pts) });
+  }
+  return out;
+}
+
+/* 候选点去重 */
+function addCand(list, seen, x, y) {
+  const k = Math.round(x * 2) + "|" + Math.round(y * 2);
+  if (seen.has(k)) return;
+  seen.add(k);
+  list.push({ x, y });
+}
+
+/* ============ 基元调度：按件高动态决定能塞几排，并让排与排之间可重叠 ============ */
+
+/* 可排高能被 2 排整除 → 排序集 {0, H-h}；不能整除但能塞 3 排 → {0, (H-h)/2, H-h}。
+   注意不能用「0/1/2 排」这种固定枚举 —— 排数必须由件高算出来，
+   否则换成小件时同一套逻辑会给出错误的排数。 */
+function rowLayoutSet(h, H) {
+  const sets = [];
+  if (2 * h <= H + 1e-6) {
+    sets.push([0, H - h]);
+    if (3 * h <= H + 1e-6) sets.push([0, (H - h) / 2, H - h]);
+  } else {
+    sets.push([0]);
+  }
+  return sets;
+}
+
+/* 排间距候选：0（贴齐）走到最大可行重叠。用绝对间距 Δy 而不是「重叠量」，
+   因为重叠量要绕一次 h 才知道上限，绝对间距更稳。 */
+const ROW_DELTAS = [0, 4, 8, 12, 16, 20, -4, -8, -12, -16, -20];
+
+/* 同一套排布局最多连填几件就换下一套。太小 → 布局频繁跳，形成不了整排；
+   太大 → 退化成单点贪心，失去多重迭代的意义。取 8 与件数的较小者。 */
+const ROW_TRIES_PER_LAYOUT = 8;
+
+/* 排布局 {ys, dx}：dx 是排内跨件相位（每 k 件整体右移 dx）。
+   几何上「整齐两排」的 148.33 节距来自**同排相邻件**互相共用斜缝；
+   若改成让**跨排**上下件咬合（成对推进），节距会退化为件宽 157.61（实测 dy=725 时 minDx=0）——
+   斜边被上下两件各占一次，反而更差。所以 dx 必须跨件才有意义。 */
+function rowLayouts(h, H) {
+  const out = [];
+  for (const ys of rowLayoutSet(h, H)) {
+    const m = ys.length;
+    const base = ys.slice();
+    const dmax = (H - h) / Math.max(1, m - 1) - 1e-6;
+    for (const d of ROW_DELTAS) {
+      if (m === 1) { if (d === 0) out.push({ ys: base.slice(), dx: 0 }); continue; }
+      if (d > dmax + 1e-6 || d < -1e-6) continue;
+      const a = base.map(y => y + d);
+      if (a[0] < -1e-6 || a[m - 1] + h > H + 1e-6) continue;
+      for (const dx of [0, h * 0.5, -h * 0.5]) out.push({ ys: a, dx });
+    }
+  }
+  const dedup = [], seen = new Set();
+  for (const L of out) {
+    const k = L.ys.map(y => y.toFixed(2)).join(",") + "/" + L.dx.toFixed(2);
+    if (seen.has(k)) continue;
+    seen.add(k); dedup.push(L);
+  }
+  return dedup;
+}
+
+/* 每个变体最多试几套排布局。
+   坑：rowLayouts 对两排件会展开出 21 套左右（只留两排，行内相位 dx 被去掉），
+   20 万次 polyDist 就卡在这里；如果再用 m>=3 的布局（只留 2~3 套但每套多一排），
+   单件求 x 的成本会再涨 50%。两排件的最优解本来就来自「整齐两排」，
+   因此**按件高裁掉多余布局**：只保留能让「每排装下尽量多件」的那一类。 */
+function trimRowLayouts(layouts, h, H) {
+  if (layouts.length <= 6) return layouts;
+  // 优先保留排数最少的（排数少 → 单排能装的件多 → 节距优势更大）
+  const minRows = Math.min(...layouts.map(L => L.ys.length));
+  const kept = layouts.filter(L => L.ys.length === minRows);
+  return kept.length ? kept : layouts;
+}
+
+/* 两排同形件的纵向错层搜索：每件可在自己的排内微移，再按真实轮廓求最短横向节距。
+   适用于只允许一种姿态的窄长件；不生成新的角度，也不改变最小间距。 */
+function staggeredPairRows(items, usableW, gap, timeMs, searchSeed) {
+  if (items.length < 8 || items.length > 40 || items.length % 2 ||
+      items.some(it => it.shapeIdx !== items[0].shapeIdx || it.variants.length !== 1)) return null;
+  const v = items[0].variants[0];
+  if (v.angle !== 0 || 2 * v.h > usableW + 1e-6 || 3 * v.h <= usableW + 1e-6) return null;
+  const yMax = usableW - v.h;
+  const span = Math.min(120, v.h * 0.18, yMax * 0.3);
+  if (span < 1) return null;
+  const anchor = { pts: v.pts, eb: v.eb, bb: bbox(v.pts) };
+  const separation = new Map();
+  function sep(dy) {
+    const key = dy.toFixed(5);
+    if (separation.has(key)) return separation.get(key);
+    if (Math.abs(dy) >= v.h + gap) { separation.set(key, 0); return 0; }
+    const fits = x => clashAt(v.pts, v.eb, x, dy, anchor, gap, v.w, v.h) === 0;
+    if (fits(0)) { separation.set(key, 0); return 0; }
+    let lo = 0, hi = v.w + gap + 0.1;
+    for (let k = 0; k < 15; k++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) hi = mid; else lo = mid;
+    }
+    const safe = hi + 0.03;
+    separation.set(key, safe);
+    return safe;
+  }
+  function evaluate(ys) {
+    const xs = [];
+    for (let i = 0; i < ys.length; i++) {
+      let x = 0;
+      for (let j = 0; j < i; j++) x = Math.max(x, xs[j] + sep(ys[i] - ys[j]));
+      xs.push(x);
+    }
+    return { xs, length: Math.max(...xs) + v.w };
+  }
+
+  let seed = searchSeed === undefined ? 45127 : searchSeed;
+  function rnd() { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; }
+  const ys = items.map((_, i) => i % 2 ? yMax : 0);
+  let current = evaluate(ys), best = { ...current, ys: ys.slice() };
+  const steps = [1, 2, 4, 8, 16, 32, 48].map(n => n * span / 70);
+  const limit = Math.min(250000, Math.max(12000, Math.floor(timeMs * 120)));
+  const started = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  for (let it = 0; it < limit; it++) {
+    if ((it & 255) === 0 &&
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - started > timeMs) break;
+    const i = Math.floor(rnd() * ys.length), old = ys[i];
+    const step = steps[Math.floor(rnd() * steps.length)] * (rnd() < 0.5 ? -1 : 1);
+    const lo = i % 2 ? yMax - span : 0, hi = i % 2 ? yMax : span;
+    ys[i] = Math.max(lo, Math.min(hi, Math.round((old + step) * 2) / 2));
+    const next = evaluate(ys);
+    const temp = 1.5 + 15 * (1 - (it % 400) / 400);
+    if (next.length < current.length || rnd() < Math.exp((current.length - next.length) / temp)) {
+      current = next;
+      if (current.length < best.length) best = { ...current, ys: ys.slice() };
+    } else ys[i] = old;
+    if (it % 400 === 399) {
+      ys.splice(0, ys.length, ...best.ys);
+      current = evaluate(ys);
+    }
+  }
+
+  // 粗搜索使用 0.5 mm 网格；最后逐件细调，消除量化留下的小余量。
+  for (const step of [0.5, 0.2, 0.1, 0.05, 0.02]) {
+    for (let pass = 0; pass < 3; pass++) {
+      let improved = false;
+      for (let i = 0; i < best.ys.length; i++) {
+        const lo = i % 2 ? yMax - span : 0, hi = i % 2 ? yMax : span;
+        for (const sign of [-1, 1]) {
+          const candidateYs = best.ys.slice();
+          candidateYs[i] = Math.max(lo, Math.min(hi, candidateYs[i] + sign * step));
+          const next = evaluate(candidateYs);
+          if (next.length < best.length - 1e-7) {
+            best = { ...next, ys: candidateYs };
+            improved = true;
+          }
+        }
+      }
+      if (!improved) break;
+    }
+  }
+
+  const placed = best.xs.map((x, i) => {
+    const y = best.ys[i], pts = translate(v.pts, x, y);
+    return { pts, eb: edgeBoxes(pts), holes: v.holes.map(h => translate(h, x, y)),
+             bb: bbox(pts), angle: v.angle, shapeIdx: items[i].shapeIdx, id: items[i].id,
+             seg: 0, x, y, w: v.w, h: v.h, area: v.area };
+  });
+  for (let i = 0; i < placed.length; i++) {
+    for (let j = 0; j < i; j++) {
+      if (polyOverlap(placed[i].pts, placed[j].pts) ||
+          polyDist(placed[i].pts, placed[j].pts) < gap - 1e-3) return null;
+    }
+  }
+  return { placed, length: best.length, segments: [{ len: best.length }] };
+}
+
+/* 0°/180° 两排交替掉头：两排按列推进，每列可独立错层。
+   对每种错层幅度做有界束搜索，用真实轮廓算横向节距，最后逐件复核间距。 */
+function alternatingPairRows(items, usableW, gap, timeMs) {
+  if (items.length < 8 || items.length > 40 || items.length % 2 ||
+      items.some(it => it.shapeIdx !== items[0].shapeIdx || it.variants.length !== 2)) return null;
+  const byAngle = new Map(items[0].variants.map(v => [v.angle, v]));
+  const v0 = byAngle.get(0), v180 = byAngle.get(180);
+  if (!v0 || !v180 || Math.abs(v0.h - v180.h) > 1e-3 ||
+      Math.abs(v0.w - v180.w) > 1e-3 ||
+      2 * v0.h > usableW + 1e-6 || 3 * v0.h <= usableW + 1e-6) return null;
+
+  const yMax = usableW - v0.h;
+  const anchors = new Map([v0, v180].map(v => [v.angle,
+    { pts: v.pts, eb: v.eb, bb: bbox(v.pts) }]));
+  const separations = new Map();
+  function separation(current, previous, dy) {
+    const key = current.angle + "|" + previous.angle + "|" + dy.toFixed(4);
+    if (separations.has(key)) return separations.get(key);
+    if (Math.abs(dy) >= v0.h + gap) return 0;
+    const fits = x => clashAt(current.pts, current.eb, x, dy,
+                              anchors.get(previous.angle), gap, current.w, current.h) === 0;
+    let value = 0;
+    if (!fits(0)) {
+      let lo = 0, hi = Math.max(current.w, previous.w) + gap + 0.1;
+      for (let k = 0; k < 16; k++) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) hi = mid; else lo = mid;
+      }
+      value = hi + 0.03;
+    }
+    separations.set(key, value);
+    return value;
+  }
+
+  const started = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+  const offsets = [0, .04, .0395, .03, .02, .05, .045, .035, .025, .0375, .0425]
+    .map(f => Math.min(yMax * 0.5, v0.h * f));
+  const candidates = [];
+  for (const offset of offsets) {
+    for (const firstAngle of [180, 0]) {
+      const variants = items.map((_, i) =>
+        (Math.floor(i / 2) % 2 === 0) === (firstAngle === 180) ? v180 : v0);
+      let beam = [{ ys: [], xs: [], length: 0 }];
+      for (let i = 0; i < items.length; i++) {
+        const next = [];
+        const choices = offset < 1e-6 ? [0] : [0, offset];
+        for (const state of beam) for (const shift of choices) {
+          const y = i % 2 ? yMax - shift : shift;
+          let x = 0;
+          for (let j = 0; j < i; j++)
+            x = Math.max(x, state.xs[j] +
+              separation(variants[i], variants[j], y - state.ys[j]));
+          next.push({ ys: [...state.ys, y], xs: [...state.xs, x],
+                      length: Math.max(state.length, x + variants[i].w) });
+        }
+        next.sort((a, b) => a.length - b.length);
+        beam = next.slice(0, 24);
+      }
+      for (const state of beam.slice(0, 4)) candidates.push({ state, variants });
+      if (candidates.length && now() - started > timeMs) break;
+    }
+    if (candidates.length && now() - started > timeMs) break;
+  }
+  candidates.sort((a, b) => a.state.length - b.state.length);
+  for (const { state, variants } of candidates) {
+    const placed = state.xs.map((x, i) => {
+      const v = variants[i], y = state.ys[i], pts = translate(v.pts, x, y);
+      return { pts, eb: edgeBoxes(pts), holes: v.holes.map(h => translate(h, x, y)),
+               bb: bbox(pts), angle: v.angle, shapeIdx: items[i].shapeIdx, id: items[i].id,
+               seg: 0, x, y, w: v.w, h: v.h, area: v.area };
+    });
+    let valid = true;
+    for (let i = 0; i < placed.length && valid; i++)
+      for (let j = 0; j < i; j++)
+        if (polyOverlap(placed[i].pts, placed[j].pts) ||
+            polyDist(placed[i].pts, placed[j].pts) < gap - 1e-3) {
+          valid = false; break;
+        }
+    if (valid) return { placed, length: state.length, segments: [{ len: state.length }] };
+  }
+  return null;
+}
+
+/* 核心：定宽卷料排料 */
+function nest(shapes, opt) {
+  const usableW = opt.veneerWidth - opt.marginTop - opt.marginBottom;
+  const gap = opt.gap, gapMin = opt.gapMin;
+  const maxSeg = opt.maxSeg > 0 ? opt.maxSeg - opt.marginHead - opt.marginTail : Infinity;
+  const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  const budget = opt.budgetMs || 8000;
+
+  // 展开待排件
+  const items = [];
+  shapes.forEach((s, si) => {
+    const vs = variantsOf(s, opt.rotation, opt.angleStep, opt.angles);
+    for (let k = 0; k < s.qty; k++) {
+      items.push({ shapeIdx: si, variants: vs, id: items.length });
+    }
+  });
+  items.sort((a, b) => {
+    const A = a.variants[0], B = b.variants[0];
+    return (B.w * B.h) - (A.w * A.h);
+  });
+
+  const unusable = [];
+  for (const it of items) {
+    const ok = it.variants.some(v => v.h <= usableW + 1e-6);
+    if (!ok) unusable.push(it);
+  }
+  const placeable = items.filter(it => !unusable.includes(it));
+
+  let best = null;
+  let round = 0;
+  let laneDelta = 0, laneStagger = 0;
+  const LANE_DELTAS = [4, 8, 12, 16, 20, 26, 34, 44, 60, 80];       // 两排纵向重叠量候选
+  const LANE_STAGGERS = [0, 0, 0, 0, 20, 28, 36, 44, 52, 64];       // 排内微错层候选
+  const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+  const rnd = mulberry32(opt.seed === undefined ? 20260920 : opt.seed);
+  const base = placeable.slice();
+  if (!opt.fixedRounds && maxSeg === Infinity && !unusable.length &&
+      budget >= 1000 && shapes.length === 1) {
+    const pairBase = base.map(it => ({ ...it,
+      variants: it.variants.filter(v => v.angle === 0 || v.angle === 180) }));
+    best = alternatingPairRows(pairBase, usableW, gap, Math.min(3500, budget * 0.15));
+    const searchMs = Math.min(4000, budget * 0.2);
+    // 错层搜索是随机的，个别种子会找到未通过最终实测间距校验的布局。
+    // 换种子重试，避免退回明显更长的齐平两排方案。
+    const zeroBase = base.map(it => ({ ...it,
+      variants: it.variants.filter(v => v.angle === 0) }));
+    for (const seed of best ? [] : [45127, 45128, 45129]) {
+      const candidate = staggeredPairRows(zeroBase, usableW, gap, searchMs, seed);
+      if (candidate) { best = candidate; break; }
+    }
+  }
+
+  // 前两轮是固定的两种策略（保证下限）；之后按时间预算做随机重启，取最省的一版
+  while (true) {
+    let items = base, strat;
+    laneDelta = 0; laneStagger = 0;
+    if (round === 0) strat = "bottomLeft";
+    else if (round === 1) strat = "leftBottom";
+    else if (round === 2) strat = "contactX";
+    else if (round === 3) strat = "lanes";                  // 整齐两排（基准，laneDelta=0）
+    else if (round === 4) strat = "rowPack";                // 排布局构造器（每轮挑一套布局填满）
+    else {
+      const r = rnd();
+      if (r < 0.42) {
+        // 泳道 + 随机重叠量 + 随机微错层：让两排重叠、排内再错开，上下件互相咬合
+        strat = "lanes";
+        laneDelta = LANE_DELTAS[Math.floor(rnd() * LANE_DELTAS.length)];
+        laneStagger = LANE_STAGGERS[Math.floor(rnd() * LANE_STAGGERS.length)];
+      } else if (r < 0.72) {
+        strat = "rowPack";                                  // 多数轮次留给排布局构造器
+      } else if (r < 0.86) strat = "contactX";
+      else strat = rnd() < 0.5 ? "bottomLeft" : "leftBottom";
+      items = shuffleWith(base, rnd);
+    }
+    // 前两轮是固定策略，必须跑完 —— 否则时间给得紧会出现「只排下几件」或基准缺失的假结果。
+    // opt.fixedRounds 供测试用：跑满指定轮数就停，结果完全确定，不受机器快慢影响。
+    // 【坑】hard 不能只给 budget 的倍数：任意角度模式一轮要跑几十秒，
+    // 给 1.5×budget 会让第二、三轮刚开头就被掐断，于是「排下件数更少」的残轮赢不了第一轮，
+    // 最终拿着一个没搜过的差解返回（实测 1901，比 0° 的 1196 还差）。
+    // 改成按预算翻倍给，保证至少能跑完 3~4 个完整轮次。
+    const hard = opt.fixedRounds ? Infinity
+               : (best && best.placed.length >= items.length
+                    ? Math.max(budget * 3, 45000)        // 已排满：给够时间让后续轮次真正跑完
+                    : Math.max(budget * 8, 90000));      // 还没排满：更要给足，别误判策略不行
+    // 任意角度时变体池很大：每轮滑动取样不同的姿态窗口，让轮次之间探索不同角度。
+    // 步长用互质的小奇数（13），避免和排序后的「成对姿态」（θ 与 θ+180 相邻）同余，
+    // 否则窗口会一直落在同一类姿态上，探索不到别的。 */
+    const varShift = opt.rotation === "free" ? (round * 13) % 1000 : 0;
+    const run = runOnce(items, { ...opt, usableW, gap, maxSeg, laneDelta, laneStagger, varShift },
+                        strat, t0, budget, unusable, hard);
+    // 先比「排下多少件」，再比「用料多短」——
+    // 否则被时间掐断的那一轮因为件少、长度短，会被误判成最优解
+    const better = !best ||
+      run.placed.length > best.placed.length ||
+      (run.placed.length === best.placed.length && run.length < best.length - 1e-6);
+    if (better) best = run;
+    round++;
+    if (opt.fixedRounds) {
+      if (round >= opt.fixedRounds) break;
+    } else if (now() - t0 > budget || round >= 300) {
+      break;
+    }
+  }
+
+  return {
+    placed: best.placed,
+    unusable,
+    usableW,
+    length: best.length,
+    segments: best.segments,
+    totalLen: best.segments.reduce((a, s) => a + s.len, 0) +
+              (opt.marginHead + opt.marginTail) * best.segments.length,
+    gapUsed: gap,
+    rounds: round,
+    elapsed: now() - t0
+  };
+}
+
+/* 先保证排下更多裁片，再选总长最短的一版。 */
+function bestResultIndex(results) {
+  let best = 0;
+  for (let i = 1; i < results.length; i++) {
+    const a = results[i], b = results[best];
+    if (a.r.placed.length > b.r.placed.length ||
+        (a.r.placed.length === b.r.placed.length && a.totalLen < b.totalLen)) best = i;
+  }
+  return best;
+}
+
+/* 方案对比只改变件距，旋转范围始终沿用用户的勾选。 */
+function comparisonPasses(opt) {
+  const passes = [{ tag: "目标间隔 " + opt.gap + " mm", gap: opt.gap, angles: opt.angles }];
+  if (opt.gapMin < opt.gap - 1e-9) {
+    passes.push({ tag: "压到最小间距 " + opt.gapMin + " mm", gap: opt.gapMin, angles: opt.angles });
+  }
+  return passes;
+}
+
+/* “允许 180°”包含保持输入方向；其它勾选角度仍各自独立。 */
+function allowedAngles(checked) {
+  return checked.includes(180) && !checked.includes(0) ? [0, ...checked] : checked;
+}
+
+/* 可复现的伪随机数（mulberry32）—— 同一个种子跑出同一结果，方便复现问题 */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleWith(arr, rnd) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+function runOnce(items, opt, strat, t0, budget, unusable, hardMs) {
+  const usableW = opt.usableW;
+  const maxSeg = opt.maxSeg;
+  const gap = opt.gap;
+  const isRow = strat === "rowPack";
+
+  const placed = [];              // {pts, holes, bb, angle, shapeIdx, id, seg, x, y}
+  const segments = [];            // {len}
+  let seg = 0;
+  let segLen = 0;
+
+  const cands = [];
+  const seen = new Set();
+  addCand(cands, seen, 0, 0);
+
+  /* ---------- rowPack 专用状态 ---------- */
+  // 同一「排布局」必须优先填满两个泳道再换布局，否则每换一件都重排布局会把件堆成交错砖墙
+  const rowState = new Map();
+  function stateOf(h) {
+    const key = Math.round(h * 10);
+    if (!rowState.has(key)) {
+      rowState.set(key, { n: 0, layout: null, layouts: null });
+    }
+    return rowState.get(key);
+  }
+  function resetRowState() { rowState.clear(); }
+
+  function bbOf(pts) { return bbox(pts); }
+
+  /* 变体太多时必须「先排序 + 截断」，否则一轮根本跑不完。
+     坑：任意角度细扫后有 104 个变体，逐件都要对每个变体 × 每套排布局做二分求 x
+     （每次二分 12 次 fits，每次 fits 要跑十几对 polyDist）。单轮 60s 都跑不完，
+     于是「轮数」永远是 2~3，搜索等于没做（实测返回 1884 的坏解）。
+     但真正有用的变体只有少数几个 —— 在倾斜模式里就是贴近基准角的那些小角度姿态。
+     所以每轮随机抽一个子集来试，让不同轮次探索不同姿态：既保证单轮可完成，
+     又保证全局覆盖。子集按「包围盒宽度」升序（窄的姿态更省地方）后取前若干。 */
+  let VAR_LIMIT = opt.varLimit || 12;
+  let varShift = opt.varShift || 0;
+  function orderedVariants(vs) {
+    if (vs.length <= VAR_LIMIT) return vs;
+    if (!vs.__sorted) vs.__sorted = vs.slice().sort((a, b) => (a.w * a.h) - (b.w * b.h));
+    const S = vs.__sorted;
+    // 按窗口滑动取样：不同轮次看到不同的姿态子集，保证全局覆盖。
+    // 窗口恰好贴住最窄的一批姿态时，就是传统「优先挑省地方的」策略；
+    // 滑到后面则去探索宽姿态 —— 它们偶尔能让上下排咬得更深。
+    const out = [];
+    for (let i = 0; i < VAR_LIMIT; i++) out.push(S[(varShift + i) % S.length]);
+    return out;
+  }
+
+  function fits(variant, px, py, segIndex) {
+    if (py < -1e-6 || py + variant.h > usableW + 1e-6) return false;
+    if (px < -1e-6) return false;
+    if (segIndex === segments.length && px + variant.w > maxSeg + 1e-6) return false;
+    // variant.pts 已归一化到原点，所以世界包围盒可以直接由偏移算出来，省掉一次数组分配
+    const bb = { x0: px, y0: py, x1: px + variant.w, y1: py + variant.h };
+    for (const p of placed) {
+      if (p.seg !== segIndex) continue;
+      if (p.bb.x1 < bb.x0 - gap - 1 || bb.x1 < p.bb.x0 - gap - 1) continue;
+      if (p.bb.y1 < bb.y0 - gap - 1 || bb.y1 < p.bb.y0 - gap - 1) continue;
+      if (clashAt(variant.pts, variant.eb, px, py, p, gap, variant.w, variant.h) !== 0) return false;
+    }
+    return true;
+  }
+
+  /* 候选高度：已放件的顶点 y + 包围盒上下边，去重排序 */
+  function candidateYs(segIndex) {
+    const set = new Set();
+    set.add(0);
+    for (const p of placed) {
+      if (p.seg !== segIndex) continue;
+      set.add(Math.round(p.bb.y0));
+      set.add(Math.round(p.bb.y1));
+      const step = Math.max(1, Math.floor(p.pts.length / 40));
+      for (let i = 0; i < p.pts.length; i += step) set.add(Math.round(p.pts[i][1]));
+    }
+    return [...set].filter(y => y >= -0.5).sort((a, b) => a - b);
+  }
+
+  /* 给定高度 y，二分找最小可行的 x。
+     斜的、带锥度的件能「贴着滑进去」，比顶点对齐的候选点靠得更近 ——
+     不这么做就永远发现不了咬合位（实测件宽 157.61 但咬合后只需 145.33）。 */
+  function minXAt(v, y, segIndex, xCap, xStart) {
+    const s = xStart || 0;
+    if (s > 1e-9 && !fits(v, s, y, segIndex)) {
+      // 带相位的起点不合法 → 退回从 0 起重新二分，保证不会因为相位而整体放不下
+      if (fits(v, 0, y, segIndex)) return 0;
+      if (!fits(v, xCap, y, segIndex)) return null;
+      let lo = 0, hi = xCap;
+      for (let it = 0; it < 12; it++) {
+        const mid = (lo + hi) / 2;
+        if (fits(v, mid, y, segIndex)) hi = mid; else lo = mid;
+      }
+      return hi;
+    }
+    if (fits(v, s, y, segIndex)) return s;
+    if (!fits(v, xCap, y, segIndex)) return null;
+    let lo = s, hi = xCap;
+    for (let it = 0; it < 12; it++) {
+      const mid = (lo + hi) / 2;
+      if (fits(v, mid, y, segIndex)) hi = mid; else lo = mid;
+    }
+    return hi;
+  }
+
+  /* 咬合策略：遍历候选高度，每个高度二分求最小可行 x。
+     关键在**怎么挑** —— 不能只求「x 最小」：
+     那样会把件堆成交错的砖墙，总长反而更长（实测比朴素咬合排法差 30mm）。
+     正确的贪心目标是**让总长增长最少**：min max(当前段长, x + 件宽)，
+     打平时再取 y 小的。这样自然会「一行填满再起第二行」。 */
+  /* 泳道高度候选：按件高整倍数铺，最后补一个「贴顶」位置。
+     opt.laneDelta = 第二排往下压多少毫米，让两排**纵向重叠**。
+     件是斜的，重叠带里上下排的件能互相咬合 —— 实测同高两排最小节距 148.33，
+     重叠 12.9mm 时只要 140.88（博克导出的 DXF 量出来就是这个重叠量）。
+     【注意】必须「一次只试一个 delta、分多轮跑」，不能把所有 delta 混进同一个候选集 ——
+     混在一起贪心会迷路（实测 0° 会从 1196 退到 1228）。 */
+  function laneYs(h) {
+    const d = opt.laneDelta || 0;        // 两排纵向重叠量
+    const s = opt.laneStagger || 0;      // 排内微错层（博克的低排件还在 45/84 之间交替）
+    const y2 = h - d;
+    const ys = [0];
+    if (s > 1e-6) ys.push(s);
+    if (y2 > 1e-6 && y2 + h <= usableW + 1e-6) {
+      ys.push(y2);
+      if (s > 1e-6 && y2 + s + h <= usableW + 1e-6) ys.push(y2 + s);
+    }
+    for (let y = y2 + h; y + h <= usableW + 1e-6; y += h) ys.push(y);
+    const top = usableW - h;
+    if (top > 1e-6 && ys.indexOf(top) < 0) ys.push(top);
+    return ys;
+  }
+
+  function tryPlaceContactX(item, segIndex) {
+    const vertexYs = strat === "lanes" ? null : candidateYs(segIndex);
+    const xCap = segLen + 60;
+    let best = null;
+    for (const v of orderedVariants(item.variants)) {
+      if (v.h > usableW + 1e-6) continue;
+      const ys = vertexYs || laneYs(v.h);
+      for (const y of ys) {
+        if (y + v.h > usableW + 1e-6) continue;
+        const x = minXAt(v, y, segIndex, xCap);
+        if (x === null) continue;
+        if (segIndex === segments.length && x + v.w > maxSeg + 1e-6) continue;
+        const nl = Math.max(segLen, x + v.w);          // 放这儿之后这一段的长度
+        if (!best || nl < best.nl - 1e-6 ||
+            (Math.abs(nl - best.nl) < 1e-6 && y < best.y - 1e-6)) {
+          best = { x, y, v, nl };
+          if (nl <= segLen + 1e-6) return best;        // 不会让总长变长，不可能更好
+        }
+      }
+    }
+    return best;
+  }
+
+  /* ---------- rowPack：把件往「排布局」里塞，而不是逐个找空档 ----------
+     动机：整齐两排之所以能到 148.33 节距，是因为**同一排里相邻两件**互相共用斜缝。
+     逐件贪心（contactX）会把一件件塞进不同的 y，反而永远形成不了这种整排规律。
+     这里改成先挑一套排布局（几条排 + 排内跨件相位 dx），再把件按排依次填满。 */
+  function tryPlaceRow(item, segIndex) {
+    const cur = segLen;
+    const xCap = cur + 90;                  // 允许稍微「伸出」当前段尾，但不超过 90mm
+    let best = null;
+    for (const v of orderedVariants(item.variants)) {
+      if (v.h > usableW + 1e-6) continue;
+      const st = stateOf(v.h);
+      let layouts = st.layouts;
+      let offset = 0;
+      if (!layouts) {
+        layouts = trimRowLayouts(rowLayouts(v.h, usableW), v.h, usableW);
+        st.n = 0;
+      } else {
+        st.n++;
+        if (st.n % ROW_TRIES_PER_LAYOUT === 0 && st.n > 0) {
+          // 同套布局填够件数还没填满 → 换下一套布局（多重迭代贪心的「重排」）
+          const idx = layouts.indexOf(st.layout);
+          st.layout = layouts[(idx + 1 + layouts.length) % layouts.length];
+        }
+        offset = st.n;
+      }
+      if (!st.layout) st.layout = layouts[0];
+      st.layouts = layouts;
+      const L = st.layout;
+      const m = L.ys.length;
+      const lane = offset % m;              // 轮流往各排填，保持整列推进
+      const phase = (Math.floor(offset / m) % 2) ? L.dx : 0;
+      const y = L.ys[lane];
+      const x = minXAt(v, y, segIndex, xCap, phase);
+      if (x === null) continue;
+      if (segIndex === segments.length && x + v.w > maxSeg + 1e-6) continue;
+      const nl = Math.max(cur, x + v.w);
+      // 只按「这一件的落点」打分：越靠左越好，同 x 时取 y 小的。
+      // 不能按「排布局整体长度」打分 —— 排没填满时那个估计会把好布局误杀。
+      if (!best || x < best.x - 1e-6 ||
+          (Math.abs(x - best.x) < 1e-6 && y < best.y - 1e-6)) {
+        best = { x, y, v, nl };
+      }
+    }
+    return best;
+  }
+
+  function tryPlace(item, segIndex) {
+    if (strat === "rowPack") return tryPlaceRow(item, segIndex);
+    if (strat === "contactX" || strat === "lanes") return tryPlaceContactX(item, segIndex);
+
+    const list = cands.slice();
+    if (strat === "bottomLeft") list.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    else list.sort((a, b) => (a.x - b.x) || (a.y - b.y));
+
+    for (const c of list) {
+      for (const v of orderedVariants(item.variants)) {
+        if (v.h > usableW + 1e-6) continue;
+        if (segIndex === segments.length && c.x + v.w > maxSeg + 1e-6) continue;
+        if (fits(v, c.x, c.y, segIndex)) {
+          return { x: c.x, y: c.y, v };
+        }
+      }
+    }
+    return null;
+  }
+
+  for (let k = 0; k < items.length; k++) {
+    const it = items[k];
+    if (hardMs && (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0 > hardMs) break;
+
+    let hit = tryPlace(it, seg);
+    if (!hit && maxSeg < Infinity) {
+      // 当前段放不下 → 开新段
+      seg++;
+      segments.push({ len: segLen });
+      segLen = 0;
+      cands.length = 0; seen.clear();
+      addCand(cands, seen, 0, 0);
+      resetRowState();
+      hit = tryPlace(it, seg);
+    }
+    if (!hit) {
+      // 兜底：放到当前段最右端
+      const v = it.variants.find(v => v.h <= usableW + 1e-6);
+      if (!v) continue;
+      hit = { x: segLen, y: 0, v };
+    }
+
+    const pts = translate(hit.v.pts, hit.x, hit.y);
+    const bb = bbOf(pts);
+    const rec = {
+      pts, eb: edgeBoxes(pts), holes: hit.v.holes.map(h => translate(h, hit.x, hit.y)),
+      bb, angle: hit.v.angle, shapeIdx: it.shapeIdx, id: it.id,
+      seg, x: hit.x, y: hit.y, w: hit.v.w, h: hit.v.h, area: hit.v.area
+    };
+    placed.push(rec);
+
+    if (hit.x + hit.v.w > segLen) segLen = hit.x + hit.v.w;
+
+    // 新候选点
+    addCand(cands, seen, bb.x1 + gap, bb.y0);
+    addCand(cands, seen, bb.x0, bb.y1 + gap);
+    addCand(cands, seen, bb.x1 + gap, bb.y1 + gap);
+    addCand(cands, seen, bb.x0, bb.y0);
+    const step = Math.max(4, Math.round(polyLength(pts) / 60));
+    let acc = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const n = Math.max(1, Math.ceil(L / step));
+      for (let s = 0; s <= n; s++) {
+        const t = s / n;
+        const px = a[0] + (b[0] - a[0]) * t, py = a[1] + (b[1] - a[1]) * t;
+        addCand(cands, seen, px, py);
+        addCand(cands, seen, px + gap, py);
+        addCand(cands, seen, px, py + gap);
+      }
+      acc += L;
+    }
+  }
+
+  segments.push({ len: segLen });
+  const len = segments.reduce((a, s) => a + s.len, 0) + (segments.length - 1) * 0;
+  return { placed, length: len, segments };
+}
+
+/* 利用率 */
+function utilization(placed, opt, totalLen) {
+  const usableW = opt.veneerWidth - opt.marginTop - opt.marginBottom;
+  const usedArea = placed.reduce((a, p) => a + p.area, 0);
+  const boxArea = totalLen * opt.veneerWidth;
+  return boxArea > 0 ? usedArea / boxArea : 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   四、导出
+   ══════════════════════════════════════════════════════════════ */
+
+function toDxf(placed, opt, totalLen) {
+  const L = [];
+  const p = (...a) => a.forEach(v => L.push(String(v)));
+  const poly = (pts, layer, closed) => {
+    p(0, "POLYLINE", 8, layer, 66, 1, 70, closed ? 1 : 0);
+    for (const q of pts) p(0, "VERTEX", 8, layer, 10, q[0].toFixed(4), 20, q[1].toFixed(4));
+    p(0, "SEQEND", 8, layer);
+  };
+  p(0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1009", 0, "ENDSEC");
+  p(0, "SECTION", 2, "ENTITIES");
+
+  // 木皮外框
+  poly([[0, 0], [totalLen, 0], [totalLen, opt.veneerWidth], [0, opt.veneerWidth]], "VENEER", true);
+  // 可排区域
+  poly([[opt.marginHead, opt.marginTop],
+        [totalLen - opt.marginTail, opt.marginTop],
+        [totalLen - opt.marginTail, opt.veneerWidth - opt.marginBottom],
+        [opt.marginHead, opt.veneerWidth - opt.marginBottom]], "USABLE", true);
+  // 产品
+  for (const it of placed) {
+    poly(it.pts.map(q => [q[0] + opt.marginHead, q[1] + opt.marginTop]), "PARTS", true);
+    for (const h of it.holes) {
+      poly(h.map(q => [q[0] + opt.marginHead, q[1] + opt.marginTop]), "HOLES", true);
+    }
+  }
+  p(0, "ENDSEC", 0, "EOF");
+  return L.join("\r\n");
+}
+
+function toCsv(placed, shapes, opt, totalLen, use) {
+  const rows = [];
+  rows.push(["序号", "形状", "角度(°)", "X(mm)", "Y(mm)", "宽(mm)", "高(mm)", "段号"].join(","));
+  placed.forEach((it, i) => {
+    rows.push([i + 1, "S" + (it.shapeIdx + 1), it.angle,
+      (it.x + opt.marginHead).toFixed(2), (it.y + opt.marginTop).toFixed(2),
+      it.w.toFixed(2), it.h.toFixed(2), it.seg + 1].join(","));
+  });
+  rows.push("");
+  rows.push(["汇总"].join(","));
+  rows.push(["木皮宽(mm)", opt.veneerWidth].join(","));
+  rows.push(["上布边/下布边(mm)", opt.marginTop + "/" + opt.marginBottom].join(","));
+  rows.push(["布头/料尾(mm)", opt.marginHead + "/" + opt.marginTail].join(","));
+  rows.push(["目标间隔/最小间距(mm)", opt.gap + "/" + opt.gapMin].join(","));
+  rows.push(["可排区域宽(mm)", (opt.veneerWidth - opt.marginTop - opt.marginBottom).toFixed(2)].join(","));
+  rows.push(["可排区域长(mm)", (totalLen - opt.marginHead - opt.marginTail).toFixed(2)].join(","));
+  rows.push(["木皮总长(mm)", totalLen.toFixed(2)].join(","));
+  rows.push(["已排件数", placed.length].join(","));
+  rows.push(["利用率", (use * 100).toFixed(2) + "%"].join(","));
+  return rows.join("\r\n");
+}
+
+function download(name, data, mime) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: mime || "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+}
+
+
+/* 校验外轮廓：禁止压叠、整件包含和间距不足。 */
+function validateLayout(r, shapes, opt) {
+  const issues = [], counts = shapes.map(() => 0), ids = new Set();
+  const width = opt.veneerWidth - opt.marginTop - opt.marginBottom;
+  let minGap = Infinity;
+  const allowed = allowedAngles(opt.angles || [0]);
+  for (const p of r.placed) {
+    if (!Number.isInteger(p.shapeIdx) || !shapes[p.shapeIdx] || !Number.isInteger(p.seg) || !r.segments[p.seg]) {
+      issues.push('产品或分段编号无效'); continue;
+    }
+    counts[p.shapeIdx]++;
+    if (ids.has(p.id)) issues.push('产品编号重复');
+    ids.add(p.id);
+    if (!Number.isFinite(p.angle) || (opt.rotation !== 'free' && !allowed.some(a => Math.abs(a - p.angle) < 1e-6))) issues.push('使用了未允许的角度');
+    if (!p.pts.length || p.pts.some(pt => !pt.every(Number.isFinite))) { issues.push('轮廓坐标无效'); continue; }
+    const b = bbox(p.pts);
+    if (b.x0 < -0.001 || b.y0 < -0.001 || b.x1 > r.segments[p.seg].len + 0.001 || b.y1 > width + 0.001) issues.push('产品超出可排边界');
+    if (opt.maxSeg > 0 && r.segments[p.seg].len + opt.marginHead + opt.marginTail > opt.maxSeg + 0.001) issues.push('分段超出最大长度');
+  }
+  counts.forEach((n, i) => { if (n > shapes[i].qty) issues.push('产品数量超出设置'); });
+  for (let i = 0; i < r.placed.length; i++) for (let j = i + 1; j < r.placed.length; j++) {
+    const a = r.placed[i], b = r.placed[j];
+    if (a.seg !== b.seg) continue;
+    if (polyOverlap(a.pts, b.pts)) issues.push('第 ' + (i + 1) + '、' + (j + 1) + ' 件重叠或包含');
+    const d = polyDist(a.pts, b.pts);
+    minGap = Math.min(minGap, d);
+    if (d < opt.gapMin - 0.001) issues.push('第 ' + (i + 1) + '、' + (j + 1) + ' 件间距不足');
+  }
+  return { valid: issues.length === 0, complete: counts.every((n, i) => n === shapes[i].qty),
+    minGap: Number.isFinite(minGap) ? minGap : null, issues: [...new Set(issues)] };
+}
+
+/* 引擎代码同时用于两个地方：
+   ① 正常加载时直接在当前页面里用（无 Worker 时的回退路径）
+   ② 界面那边把它打包成 Blob 起一个 Worker，让长时间排料不卡界面
+   importScripts 只在 Worker 里存在，用它判断当前是不是在 Worker 中运行 */
+if (typeof importScripts === "function") {
+  self.onmessage = function (e) {
+    try {
+      const r = nest(e.data.shapes, e.data.opt);
+      r.validation = validateLayout(r, e.data.shapes, e.data.opt);
+      self.postMessage({ ok: true, r: r });
+    } catch (err) {
+      self.postMessage({ ok: false, error: String((err && err.message) || err) });
+    }
+  };
+}
+</script>
+
+<script>
+"use strict";
+
+/* ══════════════════════════════════════════════════════════════
+   五、界面
+   ══════════════════════════════════════════════════════════════ */
+
+function initUI() {
+  const $ = id => document.getElementById(id);
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  const stage = $("stage");
+
+  let shapes = [];          // [{outline, holes, area, name, qty}]
+  let result = null;
+  let results = [], active = 0, totalQty = 0;
+  let inputRevision = 0, isNesting = false;
+  let view = { k: 1, ox: 0, oy: 0 };
+
+  function toast(msg, ms) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(t._h);
+    t._h = setTimeout(() => { t.style.display = "none"; }, ms || 4000);
+  }
+  function status(msg, cls) {
+    const s = $("stMsg");
+    s.textContent = msg;
+    s.className = cls || "";
+  }
+
+  function invalidateResult() {
+    inputRevision++;
+    if (!result && !results.length && !isNesting) return;
+    result = null;
+    results = [];
+    active = 0;
+    $("cmpList").innerHTML = '<div class="empty">参数已更改，请重新排料</div>';
+    for (const id of ["mLen", "mUse", "mCnt", "mSeg"]) $(id).textContent = "—";
+    $("stInfo").textContent = "";
+    $("validationInfo").textContent = "参数已更改，等待重新校验";
+    $("hint").innerHTML = shapes.length ? '<b>参数已更改，请点击「排料」</b>' :
+      '<b>点右上角「导入 DXF」</b><br>可以一次选多个文件，也可以把文件拖到这里';
+    $("hint").style.display = "block";
+    draw();
+    status("参数已更改，请重新排料");
+  }
+
+  function readOpt() {
+    return {
+      veneerWidth: parseFloat($("pWidth").value) || 0,
+      marginTop: parseFloat($("pTop").value) || 0,
+      marginBottom: parseFloat($("pBottom").value) || 0,
+      marginHead: parseFloat($("pHead").value) || 0,
+      marginTail: parseFloat($("pTail").value) || 0,
+      gap: parseFloat($("pGap").value) || 0,
+      gapMin: parseFloat($("pGapMin").value) || 0,
+      rotation: $("rotFree").checked ? "free" : "custom",
+      angles: allowedAngles([0, 90, 180, 270].filter(a => $("ang" + a).checked)),
+      angleStep: parseFloat($("pStep").value) || 5,
+      maxSeg: parseFloat($("pMaxSeg").value) || 0,
+      budgetMs: Math.max(1, parseFloat($("pBudget").value) || 5) * 1000
+    };
+  }
+
+  /* ---------- 导入 ---------- */
+  async function loadFiles(files) {
+    let added = 0;
+    for (const f of files) {
+      try {
+        const text = await f.text();
+        const { segments } = parseDxf(text);
+        if (!segments.length) { toast(f.name + "：没读到几何图形"); continue; }
+        const contours = chainContours(segments, 0.5);
+        const sh = buildShapes(contours);
+        if (!sh.length) { toast(f.name + "：没找到闭合轮廓"); continue; }
+        for (const s of sh) {
+          s.name = f.name.replace(/\.dxf$/i, "") + (sh.length > 1 ? " #" + (shapes.length + 1) : "");
+          s.qty = 1;
+          shapes.push(s);
+          added++;
+        }
+      } catch (e) {
+        toast(f.name + " 解析失败：" + e.message);
+      }
+    }
+    if (added) { invalidateResult(); renderParts(); status("已导入 " + added + " 个图形，可分别设置数量并混排"); $("hint").style.display = isNesting ? "block" : "none"; }
+  }
+
+  function renderParts() {
+    const box = $("partsList");
+    if (!shapes.length) { box.innerHTML = '<div class="empty">还没有导入 DXF</div>'; return; }
+    box.innerHTML = "";
+    shapes.forEach((s, i) => {
+      const bb = bbox(s.outline);
+      const d = document.createElement("div");
+      d.className = "part";
+      d.innerHTML = '<span class="nm" title="' + escapeText(s.name) + '">' + escapeText(s.name) + '</span>' +
+        '<span class="dim">' + bb.w.toFixed(1) + '×' + bb.h.toFixed(1) + '</span>' +
+        '<input type="number" min="0" step="1" value="' + s.qty + '" aria-label="' + escapeText(s.name) + ' 排料数量" title="排料数量（可单独设置）">' +
+        '<button class="del" title="删除">×</button>';
+      d.querySelector("input").oninput = e => { shapes[i].qty = Math.max(0, parseInt(e.target.value, 10) || 0); invalidateResult(); };
+      d.querySelector(".del").onclick = () => { shapes.splice(i, 1); invalidateResult(); renderParts(); };
+      box.appendChild(d);
+    });
+  }
+
+  /* ---------- 排料 ---------- */
+  /* 优先丢给 Web Worker 跑（长时间优化时界面不卡）；
+     file:// 下若浏览器不允许 Worker，自动回退到主线程，功能不受影响 */
+  let worker = null, workerBroken = false, pendingReject = null;
+  function runNestAsync(sh, opt) {
+    return new Promise((resolve, reject) => {
+      pendingReject = reject;
+      try {
+        const url = URL.createObjectURL(new Blob([document.getElementById('engine').textContent], {type: 'application/javascript'}));
+        worker = new Worker(url);
+        URL.revokeObjectURL(url);
+        const finish = () => { worker?.terminate(); worker = null; pendingReject = null; };
+        worker.onmessage = e => {
+          finish();
+          if (e.data?.ok) resolve(e.data.r);
+          else reject(new Error(e.data?.error || '排料失败'));
+        };
+        worker.onerror = () => { finish(); reject(new Error('后台计算启动失败，请重新打开程序后重试')); };
+        worker.postMessage({ shapes: sh, opt });
+      } catch (error) { worker?.terminate(); worker = null; pendingReject = null; reject(error); }
+    });
+  }
+  function cancelNest() {
+    if (!isNesting) return;
+    inputRevision++;
+    worker?.terminate(); worker = null;
+    const reject = pendingReject; pendingReject = null;
+    const error = new Error('已取消排料'); error.name = 'AbortError';
+    reject?.(error);
+  }
+
+  async function doNest() {
+    if (isNesting) return;
+    const opt = readOpt();
+    const usableW = opt.veneerWidth - opt.marginTop - opt.marginBottom;
+    if (usableW <= 0) { toast("可排宽度 ≤ 0，检查木皮宽和上下布边"); return; }
+    if (!shapes.length) { toast("先导入 DXF"); return; }
+    if (opt.rotation === "custom" && !opt.angles.length) {
+      toast("旋转模式选了「指定角度」，但一个角度都没勾 —— 至少勾一个（比如 0°）");
+      return;
+    }
+    totalQty = shapes.reduce((a, s) => a + s.qty, 0);
+    if (!totalQty) { toast("产品数量都是 0"); return; }
+    if (opt.gap < 0 || opt.gapMin < 0 || opt.gapMin > opt.gap) {
+      toast("间距不能为负，且最小间距不能大于目标间隔");
+      return;
+    }
+
+    invalidateResult();
+    const revision = inputRevision;
+    isNesting = true;
+    $("hint").innerHTML = '<b>排料中…</b>';
+    $("hint").style.display = "block";
+    status("排料中…");
+    $("btnNest").disabled = true;
+    $("btnCancel").hidden = false;
+    $("btnOpenProject").disabled = true;
+    $("btnSaveProject").disabled = true;
+    try {
+      const t0 = performance.now();
+      // 至少跑「目标间隔」一版；
+      // 最小间距更小时再跑一版压缩版；
+      // 所有可选方案都必须满足用户输入的最小间距。
+      const passes = comparisonPasses(opt);
+      results = [];
+      let unplaced = 0;
+      for (const ps of passes) {
+        const o2 = Object.assign({}, opt, {
+          gap: ps.gap, gapMin: ps.gap,
+          angles: ps.angles || opt.angles,
+          rotation: opt.rotation
+        });
+        status('正在计算方案 ' + (results.length + 1) + '/' + passes.length + '，可点击取消');
+        const r = await runNestAsync(shapes, o2);
+        if (revision !== inputRevision) { results = []; return; }
+        if (!r.validation?.valid) throw new Error('结果校验失败：' + (r.validation?.issues || []).join('；'));
+        const totalLen = r.segments.reduce((a, s) => a + s.len, 0) +
+                         (opt.marginHead + opt.marginTail) * r.segments.length;
+        const use = utilization(r.placed, o2, totalLen);
+        results.push({ tag: ps.tag, gap: ps.gap, r, opt: o2, totalLen, use });
+        unplaced += r.unusable.length;
+      }
+      if (revision !== inputRevision) {
+        results = [];
+        status("参数已更改，请重新排料");
+        return;
+      }
+      active = bestResultIndex(results);
+      renderCmp();
+      applyResult();
+      const rounds = results.reduce((a, x) => a + (x.r.rounds || 0), 0);
+      status("排料完成 · " + Math.round(performance.now() - t0) + " ms · 共试 " + rounds + " 轮" +
+             (unplaced ? " · 有件放不下" : "") +
+             (workerBroken ? " · （浏览器不支持后台线程，已在主线程完成）" : ""),
+             unplaced ? "err" : "ok");
+    } catch (err) {
+      results = []; result = null;
+      if (err.name === "AbortError") { status("已取消排料"); $("hint").innerHTML = "<b>已取消，可重新排料</b>"; return; }
+      status("排料出错：" + ((err && err.message) || err), "err");
+      $("hint").innerHTML = '<b>排料出错，请检查参数后重试</b>';
+      $("hint").style.display = "block";
+    } finally {
+      isNesting = false;
+      $("btnNest").disabled = false;
+      $("btnCancel").hidden = true;
+      $("btnOpenProject").disabled = false;
+      $("btnSaveProject").disabled = false;
+    }
+  }
+
+  /* 两版方案并排；点一下切换画布与导出用的那一版 */
+  function renderCmp() {
+    const box = $("cmpList");
+    if (!results.length) { box.innerHTML = '<div class="empty">还没排料</div>'; return; }
+    const best = bestResultIndex(results);
+    box.innerHTML = "";
+    results.forEach((x, i) => {
+      const d = document.createElement("div");
+      d.className = "cmpitem" + (i === active ? " on" : "");
+      d.innerHTML = '<span class="t">' + escapeText(x.tag) + '</span>' +
+        (i === best ? '<span class="best">' +
+          (x.r.placed.length === totalQty ? '最省' : '最多已排') + '</span>' : '') +
+        '<div class="n">总长 ' + x.totalLen.toFixed(1) + ' mm　利用率 ' +
+        (x.use * 100).toFixed(1) + '%　已排 ' + x.r.placed.length + '/' + totalQty + '</div>';
+      d.onclick = () => { active = i; renderCmp(); applyResult(); };
+      box.appendChild(d);
+    });
+  }
+
+  function applyResult() {
+    if (!results.length) return;
+    const A = results[active];
+    result = {
+      placed: A.r.placed, unusable: A.r.unusable, segments: A.r.segments,
+      totalLen: A.totalLen, use: A.use, opt: A.opt
+    };
+    const checked = A.r.validation;
+    if (!checked?.valid) { result = null; throw new Error('未通过结果校验'); }
+    $('validationInfo').textContent = '校验通过 · 无重叠或包含 · ' + (checked.complete ? '数量齐全' : '部分产品未排入') +
+      (checked.minGap === null ? '' : ' · 最小间距 ' + checked.minGap.toFixed(3) + ' mm');
+    $("hint").style.display = "none";
+    $("mLen").innerHTML = A.totalLen.toFixed(1) + '<small>mm</small>';
+    $("mUse").innerHTML = (A.use * 100).toFixed(1) + '<small>%</small>';
+    $("mCnt").textContent = A.r.placed.length + " / " + totalQty;
+    $("mSeg").textContent = A.r.segments.length;
+    $("stInfo").textContent = "可排区域 " +
+      (A.totalLen - A.opt.marginHead - A.opt.marginTail).toFixed(1) + " × " +
+      (A.opt.veneerWidth - A.opt.marginTop - A.opt.marginBottom).toFixed(1) +
+      " mm　·　" + A.tag;
+    fitView();
+    draw();
+  }
+
+  /* ---------- 绘制 ---------- */
+  function fitView() {
+    if (!result || !result.totalLen) return;
+    const opt = result.opt;
+    const W = opt.veneerWidth, L = result.totalLen;
+    const pad = 40;
+    const kx = (cv.clientWidth - pad * 2) / L;
+    const ky = (cv.clientHeight - pad * 2) / W;
+    const k = Math.min(kx, ky);
+    view.k = k;
+    view.ox = (cv.clientWidth - L * k) / 2;
+    view.oy = (cv.clientHeight - W * k) / 2;
+  }
+
+  function W2S(x, y) {
+    // 世界 y 向上 → 屏幕 y 向下
+    const opt = result.opt;
+    return [view.ox + x * view.k, view.oy + (opt.veneerWidth - y) * view.k];
+  }
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = cv.clientWidth * dpr;
+    cv.height = cv.clientHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cv.clientWidth, cv.clientHeight);
+    ctx.fillStyle = "#2a2f36";
+    ctx.fillRect(0, 0, cv.clientWidth, cv.clientHeight);
+    if (!result || !result.placed.length) return;
+
+    const opt = result.opt, W = opt.veneerWidth, L = result.totalLen;
+    const P = W2S;
+
+    // 木皮底
+    let a = P(0, W), b = P(L, 0);
+    ctx.fillStyle = "#0f1216";
+    ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+
+    // 木皮外框
+    ctx.strokeStyle = "#7f8b98"; ctx.lineWidth = 1.5;
+    ctx.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+
+    // 可排区域（红虚线）
+    const u0 = P(opt.marginHead, W - opt.marginBottom);
+    const u1 = P(L - opt.marginTail, opt.marginTop);
+    ctx.save();
+    ctx.setLineDash([7, 5]);
+    ctx.strokeStyle = "#e24b4a"; ctx.lineWidth = 1.2;
+    ctx.strokeRect(u0[0], u0[1], u1[0] - u0[0], u1[1] - u0[1]);
+    ctx.restore();
+
+    // 分段线
+    if (result.segments.length > 1) {
+      let acc = 0;
+      ctx.save(); ctx.setLineDash([4, 6]); ctx.strokeStyle = "#ef9f27"; ctx.lineWidth = 1;
+      for (let i = 0; i < result.segments.length - 1; i++) {
+        acc += result.segments[i].len + opt.marginTail + opt.marginHead;
+        const q0 = P(acc, 0), q1 = P(acc, W);
+        ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo(q1[0], q1[1]); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 产品
+    ctx.lineJoin = "round";
+    result.placed.forEach((it, i) => {
+      ctx.beginPath();
+      const path = (pts) => {
+        pts.forEach((q, j) => {
+          const s = P(q[0] + opt.marginHead, q[1] + opt.marginTop);
+          if (j === 0) ctx.moveTo(s[0], s[1]); else ctx.lineTo(s[0], s[1]);
+        });
+        ctx.closePath();
+      };
+      path(it.pts);
+      for (const h of it.holes) path(h);
+      ctx.fillStyle = "rgba(180,214,245,0.20)";
+      ctx.fill("evenodd");
+      ctx.strokeStyle = "#cfe2f5"; ctx.lineWidth = 1.1;
+      ctx.stroke();
+
+      if ($("vIdx").checked && view.k > 0.05) {
+        const c = P(it.x + opt.marginHead + it.w / 2, it.y + opt.marginTop + it.h / 2);
+        ctx.fillStyle = "#9fb6cc";
+        ctx.font = "11px Arial";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(String(i + 1), c[0], c[1]);
+      }
+    });
+
+    // 尺寸标注：外框（木皮）与红虚线（可排区域）各标一个数，避免看混
+    if ($("vDim").checked) {
+      const uL = L - opt.marginHead - opt.marginTail;
+      const uW = W - opt.marginTop - opt.marginBottom;
+      ctx.font = "12px Arial";
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      const mid = P(L / 2, 0);
+      ctx.fillStyle = "#9dbdd9";
+      ctx.fillText("木皮总长 " + L.toFixed(1) + "　·　可排 " + uL.toFixed(1), mid[0], mid[1] + 8);
+      ctx.save();
+      ctx.translate(a[0] - 12, (a[1] + b[1]) / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.fillStyle = "#9dbdd9";
+      ctx.fillText("木皮总宽幅 " + W.toFixed(1) + "　·　可排 " + uW.toFixed(1), 0, 0);
+      ctx.restore();
+    }
+  }
+
+  /* ---------- 交互 ---------- */
+  let drag = null;
+  cv.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, ox: view.ox, oy: view.oy }; });
+  window.addEventListener("mouseup", () => { drag = null; });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    view.ox = drag.ox + (e.clientX - drag.x);
+    view.oy = drag.oy + (e.clientY - drag.y);
+    draw();
+  });
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    const r = cv.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    view.ox = mx - (mx - view.ox) * f;
+    view.oy = my - (my - view.oy) * f;
+    view.k *= f;
+    draw();
+  }, { passive: false });
+  cv.addEventListener("dblclick", () => { fitView(); draw(); });
+  window.addEventListener("resize", () => { if (result) { fitView(); draw(); } });
+
+  /* ---------- 绑定 ---------- */
+  $("btnImport").onclick = () => $("fileInput").click();
+  $("fileInput").onchange = e => { loadFiles([...e.target.files]); e.target.value = ""; };
+  $("btnNest").onclick = doNest;
+  function syncRot() {
+    const free = $("rotFree").checked;
+    $("wrapStep").style.display = free ? "block" : "none";
+    $("angleBox").classList.toggle("off", free);
+  }
+  function syncAngles() {
+    if ($("ang180").checked) $("ang0").checked = true;
+    $("ang0").disabled = $("ang180").checked;
+  }
+  $("rotFixed").onchange = () => { syncRot(); saveParams(); invalidateResult(); };
+  $("rotFree").onchange = () => { syncRot(); saveParams(); invalidateResult(); };
+
+  /* ---------- 参数记忆（存在本机 localStorage，换电脑不会跟着走） ---------- */
+  const PARAM_IDS = ["pWidth", "pTop", "pBottom", "pHead", "pTail", "pGap", "pGapMin",
+                     "ang0", "ang90", "ang180", "ang270", "pStep", "pMaxSeg", "pBudget"];
+
+  function saveParams() {
+    const o = { _rotFree: $("rotFree").checked };
+    PARAM_IDS.forEach(id => {
+      const el = $(id);
+      if (el) o[id] = (el.type === "checkbox") ? el.checked : el.value;
+    });
+    try { localStorage.setItem("mupi.params.v1", JSON.stringify(o)); } catch (e) {}
+  }
+
+  function loadParams() {
+    let o = null;
+    try { o = JSON.parse(localStorage.getItem("mupi.params.v1") || "null"); } catch (e) {}
+    if (!o) return false;
+    PARAM_IDS.forEach(id => {
+      const el = $(id);
+      if (el && o[id] !== undefined) {
+        if (el.type === "checkbox") el.checked = !!o[id];
+        else el.value = o[id];
+      }
+    });
+    if (o._rotFree !== undefined) {
+      $("rotFree").checked = !!o._rotFree;
+      $("rotFixed").checked = !o._rotFree;
+    }
+    return true;
+  }
+
+  function resetParams() {
+    try { localStorage.removeItem("mupi.params.v1"); } catch (e) {}
+    PARAM_IDS.forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      if (el.type === "checkbox") el.checked = el.defaultChecked;
+      else el.value = el.defaultValue;
+    });
+    $("rotFixed").checked = true;
+    $("rotFree").checked = false;
+    syncRot();
+    syncAngles();
+    invalidateResult();
+    status("参数已恢复出厂值");
+  }
+
+  $("btnBoke").onclick = () => {
+    $("pWidth").value = "1519.9";
+    for (const id of ["pTop", "pBottom", "pHead", "pTail"]) $(id).value = "15";
+    $("pGap").value = $("pGapMin").value = "3";
+    $("pMaxSeg").value = "";
+    saveParams();
+    invalidateResult();
+    status("已套用博克样例参数，请导入原始裁片并点击排料");
+  };
+
+  PARAM_IDS.forEach(id => {
+    const el = $(id);
+    if (el) {
+      const changed = () => {
+        if (id === "ang180") syncAngles();
+        saveParams(); invalidateResult();
+      };
+      el.addEventListener("input", changed);
+      el.addEventListener("change", changed);
+    }
+  });
+  $("btnReset").onclick = resetParams;
+  if (loadParams()) status("已载入上次的参数");
+  syncRot();
+  syncAngles();
+  $("vDim").onchange = draw;
+  $("vIdx").onchange = draw;
+
+  ["dragenter", "dragover"].forEach(t => stage.addEventListener(t, e => { e.preventDefault(); }));
+  stage.addEventListener("drop", e => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) loadFiles([...e.dataTransfer.files]);
+  });
+
+  /* 生成正式的排料图（白底、带尺寸标注与参数表），供 PNG / PDF 导出与打印 */
+  function renderSheet() {
+    const opt = result.opt, L = result.totalLen, W = opt.veneerWidth;
+    const uL = L - opt.marginHead - opt.marginTail;
+    const uW = W - opt.marginTop - opt.marginBottom;
+    const PAD = 56, TITLE_H = 96, INFO_H = 250, RIGHT_W = 340, MAX_H = 1250;
+    const k = Math.min((1800 - PAD * 2 - RIGHT_W) / L, MAX_H / W);
+    const lw = L * k, lh = W * k;
+    const cw = 1800, ch = TITLE_H + lh + PAD + INFO_H;
+    const cv2 = document.createElement("canvas");
+    cv2.width = cw; cv2.height = ch;
+    const g = cv2.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, cw, ch);
+    const ox = PAD, oy = TITLE_H + PAD;
+    const T = (x, y) => [ox + x * k, oy + (W - y) * k];
+
+    g.textAlign = "left"; g.textBaseline = "alphabetic";
+    g.fillStyle = "#14395c"; g.font = "500 38px 'Microsoft YaHei',sans-serif";
+    g.fillText("木皮排料图", PAD, 58);
+    g.fillStyle = "#7a8794"; g.font = "20px Arial"; g.textAlign = "right";
+    g.fillText(new Date().toLocaleString("zh-CN"), cw - PAD, 54);
+    g.textAlign = "left";
+    g.fillStyle = "#d97a0b"; g.font = "500 23px 'Microsoft YaHei',sans-serif";
+    g.fillText("木皮总长 " + L.toFixed(1) + " mm　·　利用率 " + (result.use * 100).toFixed(1) + "%", PAD, 86);
+
+    // 木皮底 + 外框
+    const a = T(0, W), b = T(L, 0);
+    g.fillStyle = "#f5f8fb"; g.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+    g.strokeStyle = "#5a6672"; g.lineWidth = 2;
+    g.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+
+    // 可排区域（红虚线）
+    const u0 = T(opt.marginHead, W - opt.marginBottom), u1 = T(L - opt.marginTail, opt.marginTop);
+    g.save(); g.setLineDash([11, 8]); g.strokeStyle = "#d0453f"; g.lineWidth = 2;
+    g.strokeRect(u0[0], u0[1], u1[0] - u0[0], u1[1] - u0[1]);
+    g.restore();
+
+    // 产品
+    result.placed.forEach((it, i) => {
+      g.beginPath();
+      const path = (pts) => {
+        pts.forEach((q, j) => {
+          const s = T(q[0] + opt.marginHead, q[1] + opt.marginTop);
+          if (j === 0) g.moveTo(s[0], s[1]); else g.lineTo(s[0], s[1]);
+        });
+        g.closePath();
+      };
+      path(it.pts);
+      for (const h of it.holes) path(h);
+      g.fillStyle = "#d6e8fa"; g.fill("evenodd");
+      g.strokeStyle = "#14395c"; g.lineWidth = 1.6; g.stroke();
+      if (k > 0.06) {
+        const c = T(it.x + opt.marginHead + it.w / 2, it.y + opt.marginTop + it.h / 2);
+        g.fillStyle = "#2b5b86"; g.font = "15px Arial";
+        g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText(String(i + 1), c[0], c[1]);
+      }
+    });
+    g.textAlign = "left"; g.textBaseline = "alphabetic";
+
+    // 尺寸标注
+    g.fillStyle = "#14395c"; g.font = "19px Arial";
+    g.textAlign = "center"; g.textBaseline = "top";
+    g.fillText("木皮总长 " + L.toFixed(1) + "　｜　可排 " + uL.toFixed(1),
+               (a[0] + b[0]) / 2, b[1] + 18);
+    g.save();
+    g.translate(a[0] - 18, (a[1] + b[1]) / 2);
+    g.rotate(-Math.PI / 2);
+    g.textBaseline = "bottom"; g.textAlign = "center";
+    g.fillText("木皮总宽幅 " + W.toFixed(1) + "　｜　可排 " + uW.toFixed(1), 0, 0);
+    g.restore();
+
+    // 右侧参数栏
+    const rx = PAD + lw + 64;
+    let ry = oy;
+    g.textAlign = "left"; g.textBaseline = "top";
+    g.fillStyle = "#14395c"; g.font = "500 24px 'Microsoft YaHei',sans-serif";
+    g.fillText("参数", rx, ry);
+    ry += 42;
+    const rotLabel = opt.rotation === "free"
+      ? "任意角度（步长 " + opt.angleStep + "°）"
+      : "指定角度 " + (opt.angles && opt.angles.length ? opt.angles.join("° / ") + "°" : "0°");
+    const rows = [
+      ["木皮宽", W.toFixed(1) + " mm"],
+      ["上布边 / 下布边", opt.marginTop + " / " + opt.marginBottom + " mm"],
+      ["布头 / 料尾", opt.marginHead + " / " + opt.marginTail + " mm"],
+      ["间隔 / 最小间距", opt.gap + " / " + opt.gapMin + " mm"],
+      ["旋转", rotLabel],
+      ["可排区域", uL.toFixed(1) + " × " + uW.toFixed(1) + " mm"],
+      ["木皮总长", L.toFixed(1) + " mm"],
+      ["已排 / 总数", result.placed.length + " / " + totalQty],
+      ["利用率", (result.use * 100).toFixed(1) + " %"]
+    ];
+    g.font = "19px 'Microsoft YaHei',sans-serif";
+    rows.forEach((r, i) => {
+      const y = ry + i * 32;
+      g.fillStyle = "#7a8794"; g.fillText(r[0], rx, y);
+      g.fillStyle = "#2b3238"; g.fillText(r[1], rx + 176, y);
+    });
+
+    // 底部：件数汇总
+    let by = oy + lh + 52;
+    g.fillStyle = "#14395c"; g.font = "500 22px 'Microsoft YaHei',sans-serif";
+    g.fillText("件数汇总", PAD, by);
+    by += 36;
+    const cnt = {};
+    result.placed.forEach(p => { cnt[p.shapeIdx] = (cnt[p.shapeIdx] || 0) + 1; });
+    g.font = "19px 'Microsoft YaHei',sans-serif";
+    const keys = Object.keys(cnt);
+    keys.slice(0, 9).forEach((sid, i) => {
+      const col = i % 3, row = Math.floor(i / 3);
+      const nm = (shapes[sid] && shapes[sid].name) || ("形状 " + (Number(sid) + 1));
+      g.fillStyle = "#7a8794"; g.fillText(nm, PAD + col * 540, by + row * 30);
+      g.fillStyle = "#2b3238"; g.fillText("× " + cnt[sid] + " 件", PAD + col * 540 + 330, by + row * 30);
+    });
+    if (keys.length > 9) {
+      g.fillStyle = "#7a8794";
+      g.fillText("…… 另有 " + (keys.length - 9) + " 种形状，详见导出的清单 CSV", PAD, by + 3 * 30);
+    }
+    g.fillStyle = "#9aa7b4"; g.font = "17px 'Microsoft YaHei',sans-serif";
+    g.fillText("红虚线框＝可排区域（产品能占的位置）；外面实线＝木皮边界。件号对应的形状与坐标见清单 CSV。",
+               PAD, ch - 34);
+    return cv2;
+  }
+
+  $("exPng").onclick = () => {
+    if (!result) return toast("先排料");
+    renderSheet().toBlob(b => download("排料图.png", b, "image/png"));
+  };
+  $("exPdf").onclick = () => {
+    if (!result) return toast("先排料");
+    let area = document.getElementById("printArea");
+    if (!area) {
+      area = document.createElement("div");
+      area.id = "printArea";
+      document.body.appendChild(area);
+    }
+    area.innerHTML = "";
+    const img = document.createElement("img");
+    img.src = renderSheet().toDataURL("image/png");
+    img.style.width = "100%";
+    area.appendChild(img);
+    toast(window.desktop ? "请选择 PDF 保存位置" : "已生成打印页 —— 在打印对话框里选「另存为 PDF」", 5000);
+    setTimeout(async () => {
+      if (!window.desktop) return window.print();
+      try { if (await window.desktop.savePdf()) status('PDF 已保存'); }
+      catch (error) { toast('PDF 保存失败：' + error.message); }
+    }, 350);
+  };
+  $("exDxf").onclick = () => {
+    if (!result) return toast("先排料");
+    download("排料.dxf", toDxf(result.placed, result.opt, result.totalLen), "application/dxf");
+  };
+  $("exCsv").onclick = () => {
+    if (!result) return toast("先排料");
+    download("生产清单.csv", "\ufeff" + toCsv(result.placed, shapes, result.opt, result.totalLen, result.use), "text/csv");
+  };
+
+
+  const escapeText = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function projectData() {
+    const parameters = {_rotFree: $('rotFree').checked};
+    PARAM_IDS.forEach(id => { const el = $(id); parameters[id] = el.type === 'checkbox' ? el.checked : el.value; });
+    return { format: 'mupi-project', version: 1, shapes, parameters, active,
+      results: results.map(x => ({ gap: x.gap, segments: x.r.segments,
+        placed: x.r.placed.map(p => ({shapeIdx:p.shapeIdx, id:p.id, angle:p.angle, seg:p.seg, x:p.x, y:p.y})) })) };
+  }
+  function openProjectText(text) {
+    if (isNesting) throw new Error('请先取消排料');
+    const data = JSON.parse(text);
+    if (data.format !== 'mupi-project' || data.version !== 1 || !Array.isArray(data.shapes) || data.shapes.length > 1000 || !data.parameters) throw new Error('项目格式不支持');
+    const validPoly = p => Array.isArray(p) && p.length >= 3 && p.length <= 10000 && p.every(pt => Array.isArray(pt) && pt.length === 2 && pt.every(n => Number.isFinite(n) && Math.abs(n) < 1e8));
+    let total = 0;
+    const nextShapes = data.shapes.map(s => {
+      if (!validPoly(s.outline) || !Array.isArray(s.holes) || !s.holes.every(validPoly) || !Number.isInteger(s.qty) || s.qty < 0 || s.qty > 10000) throw new Error('项目图形或数量无效');
+      total += s.qty;
+      return {outline:s.outline, holes:s.holes, qty:s.qty, name:String(s.name || '未命名图形').slice(0, 200), area:polyArea(s.outline) - s.holes.reduce((a,h)=>a+polyArea(h),0)};
+    });
+    if (total > 10000) throw new Error('项目产品总数超过 10000');
+    const previous = projectData();
+    try {
+      PARAM_IDS.forEach(id => {
+        const el = $(id), v = data.parameters[id];
+        if (el.type === 'checkbox') { if (typeof v !== 'boolean') throw new Error('角度参数无效'); el.checked = v; }
+        else { if ((v !== '' && !Number.isFinite(Number(v))) || Number(v) < 0 || Number(v) > 1e8) throw new Error('数字参数无效'); el.value = v; }
+      });
+      $('rotFree').checked = data.parameters._rotFree === true;
+      $('rotFixed').checked = !$('rotFree').checked;
+      syncRot(); syncAngles();
+      const opt = readOpt();
+      if (opt.veneerWidth <= opt.marginTop + opt.marginBottom || opt.gapMin > opt.gap || opt.budgetMs > 120000 || (!opt.angles.length && opt.rotation !== 'free')) throw new Error('排料参数无效');
+      const nextResults = (data.results || []).map((x, i) => {
+        if (!Number.isFinite(x.gap) || x.gap < opt.gapMin || x.gap > opt.gap || !Array.isArray(x.placed) || x.placed.length > total || !Array.isArray(x.segments) || x.segments.length > total + 1 || !x.segments.every(s=>Number.isFinite(s.len)&&s.len>=0)) throw new Error('排料结果格式无效');
+        const placed = x.placed.map(p => {
+          if (!Number.isInteger(p.shapeIdx) || !nextShapes[p.shapeIdx] || !Number.isInteger(p.id) || !Number.isInteger(p.seg) || ![p.x,p.y,p.angle].every(Number.isFinite) || p.angle < 0 || p.angle >= 360) throw new Error('产品位置无效');
+          const v = variantsOf(nextShapes[p.shapeIdx], 'custom', 5, [p.angle])[0];
+          const pts = translate(v.pts, p.x, p.y);
+          return {...p, pts, eb:edgeBoxes(pts), bb:bbox(pts), holes:v.holes.map(h=>translate(h,p.x,p.y)), w:v.w, h:v.h, area:v.area};
+        });
+        const o2 = {...opt, gap:x.gap};
+        const r = {placed, segments:x.segments, unusable:[], rounds:0};
+        r.validation = validateLayout(r, nextShapes, o2);
+        if (!r.validation.valid) throw new Error('保存结果未通过校验：' + r.validation.issues.join('；'));
+        const totalLen = r.segments.reduce((a,s)=>a+s.len,0) + (opt.marginHead+opt.marginTail)*r.segments.length;
+        return {tag:'已保存方案 ' + (i+1), gap:x.gap, r, opt:o2, totalLen, use:utilization(placed,o2,totalLen)};
+      });
+      shapes = nextShapes; invalidateResult(); totalQty = total; results = nextResults;
+      active = Number.isInteger(data.active) && results[data.active] ? data.active : 0;
+      renderParts(); renderCmp(); if (results.length) applyResult();
+      saveParams(); status('项目已打开 · ' + shapes.length + ' 个图形 · ' + totalQty + ' 件');
+    } catch (error) {
+      PARAM_IDS.forEach(id=>{const el=$(id); if(el.type==='checkbox')el.checked=previous.parameters[id];else el.value=previous.parameters[id];});
+      $('rotFree').checked=previous.parameters._rotFree; $('rotFixed').checked=!$('rotFree').checked; syncRot(); syncAngles();
+      throw error;
+    }
+  }
+  $('btnCancel').onclick = cancelNest;
+  $('btnSaveProject').onclick = async () => {
+    if (isNesting) return;
+    try {
+      const text = JSON.stringify(projectData());
+      if (window.desktop) { if (await window.desktop.saveProject(text)) status('项目已保存'); }
+      else { download('木皮排料项目.mupi', text, 'application/json'); status('项目已下载'); }
+    } catch (error) { toast('保存失败：' + error.message); }
+  };
+  $('btnOpenProject').onclick = async () => {
+    if (!window.desktop) return $('projectInput').click();
+    try { const text = await window.desktop.openProject(); if (text !== null) openProjectText(text); }
+    catch (error) { toast('打开失败：' + error.message); }
+  };
+  $('projectInput').onchange = async e => {
+    try { const f=e.target.files[0]; if(f) { if(f.size>50*1024*1024)throw new Error('项目文件超过 50 MB'); openProjectText(await f.text()); } }
+    catch(error){toast('打开失败：'+error.message);} finally{e.target.value='';}
+  };
+
+  if (window.desktop) {
+    $('exPdf').textContent = '保存 PDF';
+    $('exportHelp').textContent = 'DXF 按 R12 格式导出。点击导出后选择文件保存位置。';
+  }
+  renderParts();
+}
+
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initUI);
+  else initUI();
+}
+</script>
+</body>
+</html>
