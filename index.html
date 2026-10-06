@@ -174,6 +174,14 @@
     <label class="f">优化时间上限 (秒)
       <input id="pBudget" type="number" step="1" min="1" max="120" value="5">
     </label>
+    <label class="f">并行计算
+      <select id="pWorkers">
+        <option value="0" selected>自动（按电脑性能）</option>
+        <option value="1">单线程</option>
+        <option value="2">2 个计算线程</option>
+        <option value="4">4 个计算线程</option>
+      </select>
+    </label>
     <div class="hintline">时间给得越多，工具试的排法越多、越省料。前两轮是固定策略，之后一直试到时间用完。</div>
 
     <h2 class="mt">产品清单</h2>
@@ -1401,7 +1409,8 @@ function nest(shapes, opt) {
     // 换种子重试，避免退回明显更长的齐平两排方案。
     const zeroBase = base.map(it => ({ ...it,
       variants: it.variants.filter(v => v.angle === 0) }));
-    for (const seed of best ? [] : [45127, 45128, 45129]) {
+    const seedOffset = (opt.searchIndex || 0) * 101;
+    for (const seed of best ? [] : [45127, 45128, 45129].map(s => s + seedOffset)) {
       const candidate = staggeredPairRows(zeroBase, usableW, gap, searchMs, seed);
       if (candidate) { best = candidate; break; }
     }
@@ -1442,7 +1451,7 @@ function nest(shapes, opt) {
     // 任意角度时变体池很大：每轮滑动取样不同的姿态窗口，让轮次之间探索不同角度。
     // 步长用互质的小奇数（13），避免和排序后的「成对姿态」（θ 与 θ+180 相邻）同余，
     // 否则窗口会一直落在同一类姿态上，探索不到别的。 */
-    const varShift = opt.rotation === "free" ? (round * 13) % 1000 : 0;
+    const varShift = opt.rotation === "free" ? (round * 13 + (opt.searchIndex || 0) * 17) % 1000 : 0;
     const run = runOnce(items, { ...opt, usableW, gap, maxSeg, laneDelta, laneStagger, varShift },
                         strat, t0, budget, unusable, hard);
     // 先比「排下多少件」，再比「用料多短」——
@@ -1482,6 +1491,13 @@ function bestResultIndex(results) {
         (a.r.placed.length === b.r.placed.length && a.totalLen < b.totalLen)) best = i;
   }
   return best;
+}
+
+/* 自动模式最多占用约一半逻辑处理器，给界面和其它程序留出余量。 */
+function nestingWorkerCount(hardware, requested = 0) {
+  const threads = Math.max(1, Math.floor(Number(hardware) || 2));
+  const ceiling = threads >= 8 ? 4 : threads >= 4 ? 2 : 1;
+  return requested === 0 ? ceiling : Math.min(ceiling, [1, 2, 4].includes(requested) ? requested : 1);
 }
 
 /* 方案对比只改变件距，旋转范围始终沿用用户的勾选。 */
@@ -1983,7 +1999,8 @@ function initUI() {
       angles: allowedAngles([0, 90, 180, 270].filter(a => $("ang" + a).checked)),
       angleStep: parseFloat($("pStep").value) || 5,
       maxSeg: parseFloat($("pMaxSeg").value) || 0,
-      budgetMs: Math.max(1, parseFloat($("pBudget").value) || 5) * 1000
+      budgetMs: Math.max(1, parseFloat($("pBudget").value) || 5) * 1000,
+      workerCount: nestingWorkerCount(navigator.hardwareConcurrency, Number($("pWorkers").value))
     };
   }
 
@@ -2030,31 +2047,56 @@ function initUI() {
   }
 
   /* ---------- 排料 ---------- */
-  /* 优先丢给 Web Worker 跑（长时间优化时界面不卡）；
-     file:// 下若浏览器不允许 Worker，自动回退到主线程，功能不受影响 */
-  let worker = null, workerBroken = false, pendingReject = null;
+  /* 各 Worker 使用不同搜索种子，汇总通过校验的最优结果。 */
+  let workers = [], pendingReject = null;
+  function stopWorkers() {
+    workers.forEach(w => { w.onmessage = null; w.onerror = null; w.terminate(); });
+    workers = [];
+  }
   function runNestAsync(sh, opt) {
     return new Promise((resolve, reject) => {
       pendingReject = reject;
+      let remaining = opt.workerCount || 1, best = null, rounds = 0, completed = 0;
+      const errors = [];
+      const started = performance.now();
+      const finish = () => {
+        stopWorkers(); pendingReject = null;
+        if (best) {
+          best.rounds = rounds; best.workerCount = completed; best.elapsed = performance.now() - started;
+          resolve(best);
+        } else reject(new Error(errors[0] || '排料失败'));
+      };
+      const settle = (w, data) => {
+        w.onmessage = null; w.onerror = null;
+        w.terminate(); workers = workers.filter(x => x !== w);
+        if (data?.ok && data.r?.validation?.valid) {
+          const r = data.r;
+          completed++; rounds += r.rounds || 0;
+          if (!best || r.placed.length > best.placed.length ||
+              (r.placed.length === best.placed.length && r.totalLen < best.totalLen)) best = r;
+        } else errors.push(data?.error || '结果未通过校验');
+        if (--remaining === 0) finish();
+      };
+      let url;
       try {
-        const url = URL.createObjectURL(new Blob([document.getElementById('engine').textContent], {type: 'application/javascript'}));
-        worker = new Worker(url);
-        URL.revokeObjectURL(url);
-        const finish = () => { worker?.terminate(); worker = null; pendingReject = null; };
-        worker.onmessage = e => {
-          finish();
-          if (e.data?.ok) resolve(e.data.r);
-          else reject(new Error(e.data?.error || '排料失败'));
-        };
-        worker.onerror = () => { finish(); reject(new Error('后台计算启动失败，请重新打开程序后重试')); };
-        worker.postMessage({ shapes: sh, opt });
-      } catch (error) { worker?.terminate(); worker = null; pendingReject = null; reject(error); }
+        url = URL.createObjectURL(new Blob([document.getElementById('engine').textContent], {type: 'application/javascript'}));
+        for (let index = 0; index < (opt.workerCount || 1); index++) {
+          const w = new Worker(url);
+          workers.push(w);
+          w.onmessage = e => settle(w, e.data);
+          w.onerror = () => settle(w, { error: '后台计算启动失败，请重新打开程序后重试' });
+          w.postMessage({ shapes: sh, opt: { ...opt, searchIndex: index,
+            seed: (opt.seed === undefined ? 20260920 : opt.seed) + index * 104729 } });
+        }
+      } catch (error) {
+        stopWorkers(); pendingReject = null; reject(error);
+      } finally { if (url) URL.revokeObjectURL(url); }
     });
   }
   function cancelNest() {
     if (!isNesting) return;
     inputRevision++;
-    worker?.terminate(); worker = null;
+    stopWorkers();
     const reject = pendingReject; pendingReject = null;
     const error = new Error('已取消排料'); error.name = 'AbortError';
     reject?.(error);
@@ -2101,7 +2143,7 @@ function initUI() {
           angles: ps.angles || opt.angles,
           rotation: opt.rotation
         });
-        status('正在计算方案 ' + (results.length + 1) + '/' + passes.length + '，可点击取消');
+        status('正在计算方案 ' + (results.length + 1) + '/' + passes.length + ' · ' + o2.workerCount + ' 个计算线程，可点击取消');
         const r = await runNestAsync(shapes, o2);
         if (revision !== inputRevision) { results = []; return; }
         if (!r.validation?.valid) throw new Error('结果校验失败：' + (r.validation?.issues || []).join('；'));
@@ -2121,8 +2163,8 @@ function initUI() {
       applyResult();
       const rounds = results.reduce((a, x) => a + (x.r.rounds || 0), 0);
       status("排料完成 · " + Math.round(performance.now() - t0) + " ms · 共试 " + rounds + " 轮" +
-             (unplaced ? " · 有件放不下" : "") +
-             (workerBroken ? " · （浏览器不支持后台线程，已在主线程完成）" : ""),
+             ' · ' + Math.min(...results.map(x => x.r.workerCount || 1)) + ' 个计算线程' +
+             (unplaced ? " · 有件放不下" : ""),
              unplaced ? "err" : "ok");
     } catch (err) {
       results = []; result = null;
@@ -2332,7 +2374,7 @@ function initUI() {
 
   /* ---------- 参数记忆（存在本机 localStorage，换电脑不会跟着走） ---------- */
   const PARAM_IDS = ["pWidth", "pTop", "pBottom", "pHead", "pTail", "pGap", "pGapMin",
-                     "ang0", "ang90", "ang180", "ang270", "pStep", "pMaxSeg", "pBudget"];
+                     "ang0", "ang90", "ang180", "ang270", "pStep", "pMaxSeg", "pBudget", "pWorkers"];
 
   function saveParams() {
     const o = { _rotFree: $("rotFree").checked };
@@ -2367,7 +2409,7 @@ function initUI() {
       const el = $(id);
       if (!el) return;
       if (el.type === "checkbox") el.checked = el.defaultChecked;
-      else el.value = el.defaultValue;
+      else el.value = el.tagName === 'SELECT' ? '0' : el.defaultValue;
     });
     $("rotFixed").checked = true;
     $("rotFree").checked = false;
@@ -2593,7 +2635,8 @@ function initUI() {
     const previous = projectData();
     try {
       PARAM_IDS.forEach(id => {
-        const el = $(id), v = data.parameters[id];
+        const el = $(id), v = id === 'pWorkers' ? (data.parameters[id] ?? '0') : data.parameters[id];
+        if (id === 'pWorkers' && !['0', '1', '2', '4'].includes(String(v))) throw new Error('并行参数无效');
         if (el.type === 'checkbox') { if (typeof v !== 'boolean') throw new Error('角度参数无效'); el.checked = v; }
         else { if ((v !== '' && !Number.isFinite(Number(v))) || Number(v) < 0 || Number(v) > 1e8) throw new Error('数字参数无效'); el.value = v; }
       });
