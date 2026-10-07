@@ -1001,7 +1001,16 @@ function buildPoly(tmp, closed) {
 /* 把散乱线段串成闭合轮廓 */
 function chainContours(segments, tol) {
   tol = tol || 0.5;
-  const open = segments.filter(s => !s.closed).map(s => ({ pts: s.pts.slice() }));
+  const seenSegments = new Set();
+  const open = segments.filter(s => !s.closed).filter(s => {
+    // 比较整条曲线；仅比较端点会误删同端点的不同圆弧。
+    const points = s.pts.map(p => p.map(v => Math.round(v * 1e6)).join(','));
+    const forward = points.join(';'), reverse = points.slice().reverse().join(';');
+    const key = forward < reverse ? forward : reverse;
+    if (seenSegments.has(key)) return false;
+    seenSegments.add(key);
+    return true;
+  }).map(s => ({ pts: s.pts.slice() }));
   const closed = segments.filter(s => s.closed).map(s => s.pts.slice());
   const result = closed.slice();
 
@@ -1103,8 +1112,10 @@ function variantsOf(shape, mode, step, angleList) {
     const key = n.w.toFixed(2) + "x" + n.h.toFixed(2) + "@" + a;
     if (seen.has(key)) continue;
     seen.add(key);
-    const holes = shape.holes.map(h => normalize(rotate(a === 0 ? h : rotate(h, a, cx, cy), 0, 0)).pts);
-    out.push({ angle: a, pts: n.pts, eb: edgeBoxes(n.pts), holes, w: n.w, h: n.h, area: polyArea(n.pts) });
+    const rb = bbox(rot);
+    const holes = shape.holes.map(h => translate(a === 0 ? h : rotate(h, a, cx, cy), -rb.x0, -rb.y0));
+    const area = polyArea(n.pts) - holes.reduce((sum, h) => sum + polyArea(h), 0);
+    out.push({ angle: a, pts: n.pts, eb: edgeBoxes(n.pts), holes, w: n.w, h: n.h, area });
   }
   return out;
 }
