@@ -1966,6 +1966,7 @@ function initUI() {
   let results = [], active = 0, totalQty = 0;
   let inputRevision = 0, isNesting = false;
   let view = { k: 1, ox: 0, oy: 0 };
+  let preview = { items: [], w: 0, h: 0 };
 
   function toast(msg, ms) {
     const t = $("toast");
@@ -1992,7 +1993,8 @@ function initUI() {
     $("validationInfo").textContent = "参数已更改，等待重新校验";
     $("hint").innerHTML = shapes.length ? '<b>参数已更改，请点击「排料」</b>' :
       '<b>点右上角「导入 DXF」</b><br>可以一次选多个文件，也可以把文件拖到这里';
-    $("hint").style.display = "block";
+    $("hint").style.display = shapes.length && !isNesting ? "none" : "block";
+    fitView();
     draw();
     status("参数已更改，请重新排料");
   }
@@ -2040,6 +2042,11 @@ function initUI() {
   }
 
   function renderParts() {
+    updatePreview();
+    if (!result) {
+      fitView(); draw();
+      $("hint").style.display = shapes.length && !isNesting ? "none" : "block";
+    }
     const box = $("partsList");
     if (!shapes.length) { box.innerHTML = '<div class="empty">还没有导入 DXF</div>'; return; }
     box.innerHTML = "";
@@ -2236,10 +2243,30 @@ function initUI() {
   }
 
   /* ---------- 绘制 ---------- */
+  function updatePreview() {
+    if (!shapes.length) { preview = { items: [], w: 0, h: 0 }; return; }
+    const boxes = shapes.map(s => bbox(s.outline));
+    const maxW = Math.max(...boxes.map(b => b.w)), maxH = Math.max(...boxes.map(b => b.h));
+    const gap = Math.max(maxW, maxH) * 0.12;
+    const cols = Math.min(shapes.length, Math.max(1, Math.ceil(Math.sqrt(
+      shapes.length * cv.clientWidth * maxH / (Math.max(1, cv.clientHeight) * Math.max(1, maxW))))));
+    const items = shapes.map((s, i) => {
+      const b = boxes[i];
+      const x = (i % cols) * (maxW + gap) + (maxW - b.w) / 2 - b.x0;
+      const y = Math.floor(i / cols) * (maxH + gap) + (maxH - b.h) / 2 - b.y0;
+      return { name: s.name, outline: translate(s.outline, x, y), holes: s.holes.map(h => translate(h, x, y)) };
+    });
+    const b = bbox(items.flatMap(s => s.outline));
+    preview = { w: b.w, h: b.h, items: items.map(s => ({
+      name: s.name, outline: translate(s.outline, -b.x0, -b.y0),
+      holes: s.holes.map(h => translate(h, -b.x0, -b.y0))
+    })) };
+  }
+
   function fitView() {
-    if (!result || !result.totalLen) return;
-    const opt = result.opt;
-    const W = opt.veneerWidth, L = result.totalLen;
+    const W = result ? result.opt.veneerWidth : preview.h;
+    const L = result ? result.totalLen : preview.w;
+    if (!(W > 0 && L > 0)) return;
     const pad = 40;
     const kx = (cv.clientWidth - pad * 2) / L;
     const ky = (cv.clientHeight - pad * 2) / W;
@@ -2251,8 +2278,8 @@ function initUI() {
 
   function W2S(x, y) {
     // 世界 y 向上 → 屏幕 y 向下
-    const opt = result.opt;
-    return [view.ox + x * view.k, view.oy + (opt.veneerWidth - y) * view.k];
+    const height = result ? result.opt.veneerWidth : preview.h;
+    return [view.ox + x * view.k, view.oy + (height - y) * view.k];
   }
 
   function draw() {
@@ -2263,7 +2290,24 @@ function initUI() {
     ctx.clearRect(0, 0, cv.clientWidth, cv.clientHeight);
     ctx.fillStyle = "#2a2f36";
     ctx.fillRect(0, 0, cv.clientWidth, cv.clientHeight);
-    if (!result || !result.placed.length) return;
+    if (!result) {
+      ctx.lineJoin = "round";
+      for (const s of preview.items) {
+        ctx.beginPath();
+        for (const pts of [s.outline, ...s.holes]) {
+          pts.forEach((q, i) => { const p = W2S(q[0], q[1]); if (i === 0) ctx.moveTo(...p); else ctx.lineTo(...p); });
+          ctx.closePath();
+        }
+        ctx.fillStyle = "rgba(180,214,245,0.20)"; ctx.fill("evenodd");
+        ctx.strokeStyle = "#cfe2f5"; ctx.lineWidth = 1.1; ctx.stroke();
+        const b = bbox(s.outline), p = W2S(b.x0 + b.w / 2, b.y0);
+        ctx.fillStyle = "#9fb6cc"; ctx.font = "12px Arial";
+        ctx.textAlign = "center"; ctx.textBaseline = "top";
+        ctx.fillText(s.name, p[0], p[1] + 8, Math.max(1, b.w * view.k));
+      }
+      return;
+    }
+    if (!result.placed.length) return;
 
     const opt = result.opt, W = opt.veneerWidth, L = result.totalLen;
     const P = W2S;
@@ -2365,7 +2409,7 @@ function initUI() {
     draw();
   }, { passive: false });
   cv.addEventListener("dblclick", () => { fitView(); draw(); });
-  window.addEventListener("resize", () => { if (result) { fitView(); draw(); } });
+  window.addEventListener("resize", () => { if (!result) updatePreview(); fitView(); draw(); });
 
   /* ---------- 绑定 ---------- */
   $("btnImport").onclick = () => $("fileInput").click();
