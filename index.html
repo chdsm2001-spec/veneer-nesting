@@ -364,6 +364,8 @@ function polyOverlap(A, B) {
   const bbA = bbox(A), bbB = bbox(B);
   if (bbA.x1 < bbB.x0 - EPS || bbB.x1 < bbA.x0 - EPS ||
       bbA.y1 < bbB.y0 - EPS || bbB.y1 < bbA.y0 - EPS) return false;
+  if (boundaryDistanceAt(A, B) > 1e-4)
+    return pointInPoly(A[0], B) || pointInPoly(B[0], A);
   for (let i = 0, n = A.length; i < n; i++) {
     const a1 = A[i], a2 = A[(i + 1) % n];
     for (let j = 0, m = B.length; j < m; j++) {
@@ -488,15 +490,61 @@ function clashAt(pts, eb, px, py, p, gap, w, h) {
 
 /* 两个多边形之间的最短距离（相交返回 0） */
 function polyDist(A, B) {
-  if (polyIntersect(A, B)) return 0;
-  let best = Infinity;
-  for (let i = 0, n = A.length; i < n; i++) {
-    const a1 = A[i], a2 = A[(i + 1) % n];
-    for (let j = 0, m = B.length; j < m; j++) {
-      const d2 = segSegDist2(a1, a2, B[j], B[(j + 1) % m]);
-      if (d2 < best) { best = d2; if (best === 0) return 0; }
-    }
+  const distance = boundaryDistanceAt(A, B);
+  if (distance < 1e-9 || pointInPoly(A[0], B) || pointInPoly(B[0], A)) return 0;
+  return distance;
+}
+
+// 密集轮廓按边包围盒分层；接触区域精算距离，其余区域按下界剪枝。
+const edgeTreeCache = new WeakMap();
+function edgeTree(pts) {
+  if (edgeTreeCache.has(pts)) return edgeTreeCache.get(pts);
+  const boxes = edgeBoxes(pts);
+  function build(ids) {
+    const b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const i of ids) for (let k = 0; k < 4; k++) b[k] = k < 2 ? Math.min(b[k], boxes[i][k]) : Math.max(b[k], boxes[i][k]);
+    if (ids.length <= 8) return { b, ids, count: ids.length };
+    const axis = b[2] - b[0] > b[3] - b[1] ? 0 : 1;
+    ids.sort((i, j) => boxes[i][axis] + boxes[i][axis + 2] - boxes[j][axis] - boxes[j][axis + 2]);
+    const mid = ids.length >> 1;
+    return { b, count: ids.length, left: build(ids.slice(0, mid)), right: build(ids.slice(mid)) };
   }
+  const tree = build(pts.map((_, i) => i));
+  edgeTreeCache.set(pts, tree);
+  return tree;
+}
+
+function boundaryDistanceAt(A, B, dx = 0, dy = 0, stopBelow = 0) {
+  let best = Infinity;
+  const stop2 = stopBelow * stopBelow;
+  function lower(a, b) {
+    const x = Math.max(0, a.b[0] + dx - b.b[2], b.b[0] - a.b[2] - dx);
+    const y = Math.max(0, a.b[1] + dy - b.b[3], b.b[1] - a.b[3] - dy);
+    return x * x + y * y;
+  }
+  function visit(a, b) {
+    if (best < stop2 || best === 0 || lower(a, b) >= best) return;
+    if (a.ids && b.ids) {
+      for (const i of a.ids) for (const j of b.ids) {
+        const a1 = A[i], a2 = A[(i + 1) % A.length], b1 = B[j], b2 = B[(j + 1) % B.length];
+        const ax = a1[0] + dx, ay = a1[1] + dy, bx = a2[0] + dx, by = a2[1] + dy;
+        const cross = orr(ax, ay, bx, by, ...b1) * orr(ax, ay, bx, by, ...b2) < 0 &&
+          orr(...b1, ...b2, ax, ay) * orr(...b1, ...b2, bx, by) < 0;
+        const d = cross ? 0 : Math.min(ptSegDist2s(ax, ay, ...b1, ...b2), ptSegDist2s(bx, by, ...b1, ...b2),
+          ptSegDist2s(...b1, ax, ay, bx, by), ptSegDist2s(...b2, ax, ay, bx, by));
+        if (d < best) best = d;
+        if (best < stop2 || best === 0) return;
+      }
+      return;
+    }
+    const splitA = !a.ids && (b.ids || a.count >= b.count);
+    let first = splitA ? a.left : b.left, second = splitA ? a.right : b.right;
+    const score = n => splitA ? lower(n, b) : lower(a, n);
+    if (score(first) > score(second)) [first, second] = [second, first];
+    if (splitA) { visit(first, b); visit(second, b); }
+    else { visit(a, first); visit(a, second); }
+  }
+  visit(edgeTree(A), edgeTree(B));
   return Math.sqrt(best);
 }
 
@@ -577,7 +625,7 @@ function polyArea(pts) { return Math.abs(signedArea(pts)); }
    二、DXF 解析
    ══════════════════════════════════════════════════════════════ */
 
-const ARC_TOL = 0.05;          // 圆弧/样条离散弦高容差 (mm)
+const ARC_TOL = 0.002;         // 圆弧离散弦高容差 (mm)
 
 function arcPoints(cx, cy, r, a0, a1, ccw, tol) {
   let sweep = a1 - a0;
@@ -1049,7 +1097,7 @@ function buildShapes(contours) {
     const s = simplify(pts, 0.02);
     const a = Math.abs(signedArea(s));
     const bb = bbox(s);
-    return { pts: s, area: a, bb, idx: i, parent: -1 };
+    return { pts: s, source: pts, area: a, bb, idx: i, parent: -1 };
   }).filter(it => it.area > 0.01);
 
   items.sort((a, b) => b.area - a.area);
@@ -1066,11 +1114,11 @@ function buildShapes(contours) {
 
   const shapes = [];
   const byIdx = new Map();
-  items.forEach((it, i) => { if (it.parent < 0) { const s = { outline: it.pts, holes: [], area: it.area }; byIdx.set(i, s); shapes.push(s); } });
+  items.forEach((it, i) => { if (it.parent < 0) { const s = { outline: it.pts, holes: [], sourceOutline: it.source, sourceHoles: [], area: polyArea(it.source) }; byIdx.set(i, s); shapes.push(s); } });
   items.forEach((it, i) => {
     if (it.parent >= 0) {
       const p = byIdx.get(it.parent);
-      if (p) { p.holes.push(it.pts); p.area -= it.area; }
+      if (p) { p.holes.push(it.pts); p.sourceHoles.push(it.source); p.area -= polyArea(it.source); }
     }
   });
   return shapes;
@@ -1102,20 +1150,23 @@ function variantsOf(shape, mode, step, angleList) {
     const list = (angleList && angleList.length) ? angleList : [0];
     for (const a of list) angles.push(((a % 360) + 360) % 360);
   }
-  const c = bbox(shape.outline);
+  const source = shape.sourceOutline || shape.outline;
+  const c = bbox(source);
   const cx = c.x0 + c.w / 2, cy = c.y0 + c.h / 2;
   const out = [];
   const seen = new Set();
   for (const a of angles) {
     const rot = a === 0 ? shape.outline : rotate(shape.outline, a, cx, cy);
-    const n = normalize(rot);
+    const reference = a === 0 ? source : rotate(source, a, cx, cy);
+    const rb = bbox(reference);
+    const n = { pts: translate(rot, -rb.x0, -rb.y0), w: rb.w, h: rb.h };
     const key = n.w.toFixed(2) + "x" + n.h.toFixed(2) + "@" + a;
     if (seen.has(key)) continue;
     seen.add(key);
-    const rb = bbox(rot);
-    const holes = shape.holes.map(h => translate(a === 0 ? h : rotate(h, a, cx, cy), -rb.x0, -rb.y0));
-    const area = polyArea(n.pts) - holes.reduce((sum, h) => sum + polyArea(h), 0);
-    out.push({ angle: a, pts: n.pts, eb: edgeBoxes(n.pts), holes, w: n.w, h: n.h, area });
+    const holes = (shape.sourceHoles || shape.holes).map(h => translate(a === 0 ? h : rotate(h, a, cx, cy), -rb.x0, -rb.y0));
+    const sourcePts = translate(reference, -rb.x0, -rb.y0);
+    const area = polyArea(sourcePts) - holes.reduce((sum, h) => sum + polyArea(h), 0);
+    out.push({ angle: a, pts: n.pts, sourcePts, eb: edgeBoxes(n.pts), holes, w: n.w, h: n.h, area });
   }
   return out;
 }
@@ -1215,7 +1266,7 @@ function staggeredPairRows(items, usableW, gap, timeMs, searchSeed) {
       const mid = (lo + hi) / 2;
       if (fits(mid)) hi = mid; else lo = mid;
     }
-    const safe = hi + 0.03;
+    const safe = hi + 0.03; // 粗搜索余量；最终由密集轮廓接触精算重新压紧。
     separation.set(key, safe);
     return safe;
   }
@@ -1318,7 +1369,7 @@ function alternatingPairRows(items, usableW, gap, timeMs) {
         const mid = (lo + hi) / 2;
         if (fits(mid)) hi = mid; else lo = mid;
       }
-      value = hi + 0.03;
+      value = hi + 0.03; // 粗搜索余量不进入最终接触位置。
     }
     separations.set(key, value);
     return value;
@@ -1374,6 +1425,106 @@ function alternatingPairRows(items, usableW, gap, timeMs) {
   return null;
 }
 
+/* 保持件数和角度，在密集轮廓上精算接触、连续错层并压紧。 */
+function refineLayout(r, shapes, opt, timeMs = 0) {
+  if (!r.placed.length) return r;
+  const width = opt.veneerWidth - opt.marginTop - opt.marginBottom;
+  const cap = opt.maxSeg > 0 ? opt.maxSeg - opt.marginHead - opt.marginTail : Infinity;
+  const variants = new Map(), separations = new Map();
+  const tolerance = 0.001;
+  const items = r.placed.map(p => {
+    const key = p.shapeIdx + '@' + p.angle;
+    if (!variants.has(key)) {
+      const v = variantsOf(shapes[p.shapeIdx], 'custom', 5, [p.angle])[0];
+      const contact = simplify(v.sourcePts, tolerance);
+      variants.set(key, { ...v, key, contact, error: contact.length === v.sourcePts.length ? 0 : tolerance });
+    }
+    return { p, v: variants.get(key) };
+  }).sort((a, b) => a.p.seg - b.p.seg || a.p.x - b.p.x || a.p.y - b.p.y);
+
+  function separation(a, b, dy) {
+    const key = a.key + '/' + b.key + '/' + dy.toFixed(8);
+    if (separations.has(key)) return separations.get(key);
+    const gap = opt.gap + a.error + b.error + (opt.gap > 0 ? 0.0002 : 0);
+    const fits = x => {
+      if (boundaryDistanceAt(a.contact, b.contact, x, dy, gap) < gap) return false;
+      if (gap === 0 && polyOverlap(translate(a.contact, x, dy), b.contact)) return false;
+      const aa = edgeTree(a.contact).b, bb = edgeTree(b.contact).b;
+      if (aa[0] + x >= bb[0] && aa[2] + x <= bb[2] && aa[1] + dy >= bb[1] && aa[3] + dy <= bb[3] &&
+          pointInPoly([a.contact[0][0] + x, a.contact[0][1] + dy], b.contact)) return false;
+      if (bb[0] >= aa[0] + x && bb[2] <= aa[2] + x && bb[1] >= aa[1] + dy && bb[3] <= aa[3] + dy &&
+          pointInPoly([b.contact[0][0] - x, b.contact[0][1] - dy], a.contact)) return false;
+      return true;
+    };
+    let x = 0;
+    if (!fits(0)) {
+      let lo = 0, hi = b.w + gap + 0.001;
+      for (let k = 0; k < 28 && hi - lo > 0.00001; k++) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) hi = mid; else lo = mid;
+      }
+      x = hi + 0.00001;
+    }
+    separations.set(key, x);
+    return x;
+  }
+
+  function evaluate(ys) {
+    const xs = [], lengths = r.segments.map(() => 0);
+    for (let i = 0; i < items.length; i++) {
+      const a = items[i];
+      if (ys[i] < 0 || ys[i] + a.v.h > width + 1e-8) return null;
+      let x = 0;
+      for (let j = 0; j < i; j++) if (items[j].p.seg === a.p.seg)
+        x = Math.max(x, xs[j] + separation(a.v, items[j].v, ys[i] - ys[j]));
+      if (x + a.v.w > cap + 1e-8) return null;
+      xs.push(x);
+      lengths[a.p.seg] = Math.max(lengths[a.p.seg], x + a.v.w);
+    }
+    return { xs, ys: ys.slice(), lengths, length: lengths.reduce((a, b) => a + b, 0) };
+  }
+  const ys = items.map(({ p, v }) => Math.max(0, Math.min(width - v.h, p.y)));
+  let best = evaluate(ys);
+  function materialize(state) {
+    const placed = items.map(({ p, v }, i) => {
+      const x = state ? state.xs[i] : p.x, y = state ? state.ys[i] : p.y;
+      const pts = translate(v.sourcePts, x, y);
+      return { ...p, x, y, pts, eb: edgeBoxes(pts), bb: bbox(pts), w: v.w, h: v.h,
+        holes: v.holes.map(h => translate(h, x, y)), area: v.area };
+    }).sort((a, b) => a.id - b.id);
+    return { ...r, placed, segments: state ? state.lengths.map(len => ({ len })) : r.segments,
+      length: state ? state.length : r.length };
+  }
+  const original = materialize(null);
+  const originalCheck = validateLayout(original, shapes, opt);
+  if (timeMs > 0 && best && items.length >= 8 && items.length <= 40 && r.segments.length === 1 &&
+      items.every(it => it.p.shapeIdx === items[0].p.shapeIdx && [0, 180].includes(it.p.angle))) {
+    const now = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const end = now() + timeMs;
+    search: for (const step of [2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002]) {
+      for (let pass = 0; pass < 3; pass++) {
+        let improved = false;
+        for (let i = 0; i < items.length; i++) for (const sign of [-1, 1]) {
+          if (now() >= end) break search;
+          const nextYs = best.ys.slice();
+          nextYs[i] = Math.max(0, Math.min(width - items[i].v.h, nextYs[i] + sign * step));
+          const candidate = evaluate(nextYs);
+          if (candidate && candidate.length < best.length - 1e-7) { best = candidate; improved = true; }
+        }
+        if (!improved) break;
+      }
+    }
+  }
+  let result = best ? materialize(best) : original;
+  const checked = validateLayout(result, shapes, opt);
+  if (!checked.valid || (originalCheck.valid && original.length < result.length)) result = original;
+  const finalCheck = validateLayout(result, shapes, opt);
+  if (!finalCheck.valid) throw new Error('密集轮廓复核失败：' + finalCheck.issues.join('；'));
+  result.totalLen = result.segments.reduce((a, s) => a + s.len, 0) + (opt.marginHead + opt.marginTail) * result.segments.length;
+  result.validation = finalCheck;
+  return result;
+}
+
 /* 核心：定宽卷料排料 */
 function nest(shapes, opt) {
   const usableW = opt.veneerWidth - opt.marginTop - opt.marginBottom;
@@ -1381,6 +1532,8 @@ function nest(shapes, opt) {
   const maxSeg = opt.maxSeg > 0 ? opt.maxSeg - opt.marginHead - opt.marginTail : Infinity;
   const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
   const budget = opt.budgetMs || 8000;
+  const refineMs = opt.fixedRounds ? 0 : opt.rotation === 'free'
+    ? Math.min(2000, budget * 0.1) : Math.min(4000, budget * 0.2);
 
   // 展开待排件
   const items = [];
@@ -1474,19 +1627,19 @@ function nest(shapes, opt) {
     round++;
     if (opt.fixedRounds) {
       if (round >= opt.fixedRounds) break;
-    } else if (now() - t0 > budget || round >= 300) {
+    } else if (now() - t0 > budget - refineMs || round >= 300) {
       break;
     }
   }
 
+  const refined = refineLayout({ ...best, unusable }, shapes, opt, refineMs);
   return {
-    placed: best.placed,
+    placed: refined.placed,
     unusable,
     usableW,
-    length: best.length,
-    segments: best.segments,
-    totalLen: best.segments.reduce((a, s) => a + s.len, 0) +
-              (opt.marginHead + opt.marginTail) * best.segments.length,
+    length: refined.length,
+    segments: refined.segments,
+    totalLen: refined.totalLen,
     gapUsed: gap,
     rounds: round,
     elapsed: now() - t0
@@ -1903,10 +2056,11 @@ function download(name, data, mime) {
 /* 校验外轮廓：禁止压叠、整件包含和间距不足。 */
 function validateLayout(r, shapes, opt) {
   const issues = [], counts = shapes.map(() => 0), ids = new Set();
+  const outlines = r.placed.map(p => p.pts), references = new Map();
   const width = opt.veneerWidth - opt.marginTop - opt.marginBottom;
   let minGap = Infinity;
   const allowed = allowedAngles(opt.angles || [0]);
-  for (const p of r.placed) {
+  for (const [index, p] of r.placed.entries()) {
     if (!Number.isInteger(p.shapeIdx) || !shapes[p.shapeIdx] || !Number.isInteger(p.seg) || !r.segments[p.seg]) {
       issues.push('产品或分段编号无效'); continue;
     }
@@ -1915,18 +2069,26 @@ function validateLayout(r, shapes, opt) {
     ids.add(p.id);
     if (!Number.isFinite(p.angle) || (opt.rotation !== 'free' && !allowed.some(a => Math.abs(a - p.angle) < 1e-6))) issues.push('使用了未允许的角度');
     if (!p.pts.length || p.pts.some(pt => !pt.every(Number.isFinite))) { issues.push('轮廓坐标无效'); continue; }
-    const b = bbox(p.pts);
-    if (b.x0 < -0.001 || b.y0 < -0.001 || b.x1 > r.segments[p.seg].len + 0.001 || b.y1 > width + 0.001) issues.push('产品超出可排边界');
+    if (shapes[p.shapeIdx].sourceOutline && [p.x, p.y, p.angle].every(Number.isFinite)) {
+      const key = p.shapeIdx + '@' + p.angle;
+      if (!references.has(key)) references.set(key, variantsOf(shapes[p.shapeIdx], 'custom', 5, [p.angle])[0].sourcePts);
+      const reference = references.get(key);
+      const matches = p.pts.length === reference.length && p.pts.every((q, i) =>
+        Math.abs(q[0] - reference[i][0] - p.x) < 1e-7 && Math.abs(q[1] - reference[i][1] - p.y) < 1e-7);
+      if (!matches) { outlines[index] = translate(reference, p.x, p.y); issues.push('产品轮廓与原始轮廓不一致'); }
+    }
+    const b = bbox(outlines[index]);
+    if (b.x0 < -1e-7 || b.y0 < -1e-7 || b.x1 > r.segments[p.seg].len + 1e-7 || b.y1 > width + 1e-7) issues.push('产品超出可排边界');
     if (opt.maxSeg > 0 && r.segments[p.seg].len + opt.marginHead + opt.marginTail > opt.maxSeg + 0.001) issues.push('分段超出最大长度');
   }
   counts.forEach((n, i) => { if (n > shapes[i].qty) issues.push('产品数量超出设置'); });
   for (let i = 0; i < r.placed.length; i++) for (let j = i + 1; j < r.placed.length; j++) {
     const a = r.placed[i], b = r.placed[j];
     if (a.seg !== b.seg) continue;
-    if (polyOverlap(a.pts, b.pts)) issues.push('第 ' + (i + 1) + '、' + (j + 1) + ' 件重叠或包含');
-    const d = polyDist(a.pts, b.pts);
+    if (polyOverlap(outlines[i], outlines[j])) issues.push('第 ' + (i + 1) + '、' + (j + 1) + ' 件重叠或包含');
+    const d = polyDist(outlines[i], outlines[j]);
     minGap = Math.min(minGap, d);
-    if (d < opt.gapMin - 0.001) issues.push('第 ' + (i + 1) + '、' + (j + 1) + ' 件间距不足');
+    if (d < opt.gapMin - 1e-7) issues.push('第 ' + (i + 1) + '、' + (j + 1) + ' 件间距不足');
   }
   return { valid: issues.length === 0, complete: counts.every((n, i) => n === shapes[i].qty),
     minGap: Number.isFinite(minGap) ? minGap : null, issues: [...new Set(issues)] };
@@ -2682,9 +2844,14 @@ function initUI() {
     const validPoly = p => Array.isArray(p) && p.length >= 3 && p.length <= 10000 && p.every(pt => Array.isArray(pt) && pt.length === 2 && pt.every(n => Number.isFinite(n) && Math.abs(n) < 1e8));
     let total = 0;
     const nextShapes = data.shapes.map(s => {
-      if (!validPoly(s.outline) || !Array.isArray(s.holes) || !s.holes.every(validPoly) || !Number.isInteger(s.qty) || s.qty < 0 || s.qty > 10000) throw new Error('项目图形或数量无效');
+      const validSource = p => Array.isArray(p) && p.length >= 3 && p.length <= 250000 && p.every(pt => Array.isArray(pt) && pt.length === 2 && pt.every(n => Number.isFinite(n) && Math.abs(n) < 1e8));
+      if (!validPoly(s.outline) || !Array.isArray(s.holes) || !s.holes.every(validPoly) ||
+          (s.sourceOutline !== undefined && !validSource(s.sourceOutline)) ||
+          (s.sourceHoles !== undefined && (!Array.isArray(s.sourceHoles) || s.sourceHoles.length !== s.holes.length || !s.sourceHoles.every(validSource))) ||
+          !Number.isInteger(s.qty) || s.qty < 0 || s.qty > 10000) throw new Error('项目图形或数量无效');
       total += s.qty;
-      return {outline:s.outline, holes:s.holes, qty:s.qty, name:String(s.name || '未命名图形').slice(0, 200), area:polyArea(s.outline) - s.holes.reduce((a,h)=>a+polyArea(h),0)};
+      return {outline:s.outline, holes:s.holes, sourceOutline:s.sourceOutline, sourceHoles:s.sourceHoles, qty:s.qty,
+        name:String(s.name || '未命名图形').slice(0, 200), area:polyArea(s.sourceOutline || s.outline) - (s.sourceHoles || s.holes).reduce((a,h)=>a+polyArea(h),0)};
     });
     if (total > 10000) throw new Error('项目产品总数超过 10000');
     const previous = projectData();
@@ -2705,7 +2872,7 @@ function initUI() {
         const placed = x.placed.map(p => {
           if (!Number.isInteger(p.shapeIdx) || !nextShapes[p.shapeIdx] || !Number.isInteger(p.id) || !Number.isInteger(p.seg) || ![p.x,p.y,p.angle].every(Number.isFinite) || p.angle < 0 || p.angle >= 360) throw new Error('产品位置无效');
           const v = variantsOf(nextShapes[p.shapeIdx], 'custom', 5, [p.angle])[0];
-          const pts = translate(v.pts, p.x, p.y);
+          const pts = translate(v.sourcePts, p.x, p.y);
           return {...p, pts, eb:edgeBoxes(pts), bb:bbox(pts), holes:v.holes.map(h=>translate(h,p.x,p.y)), w:v.w, h:v.h, area:v.area};
         });
         const o2 = {...opt, gap:x.gap};
